@@ -7,6 +7,7 @@ const VIDEO_TYPES = ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v']
 const IMAGE_TYPES = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']
 const TEXT_TYPES = ['txt', 'md', 'markdown']
 const PDF_TYPES = ['pdf']
+const HTML_TYPES = ['html', 'htm']
 
 export function getFileType(name) {
     const ext = name.split('.').pop()?.toLowerCase() || ''
@@ -14,6 +15,7 @@ export function getFileType(name) {
     if (IMAGE_TYPES.includes(ext)) return 'image'
     if (TEXT_TYPES.includes(ext)) return 'text'
     if (PDF_TYPES.includes(ext)) return 'pdf'
+    if (HTML_TYPES.includes(ext)) return 'html'
     return 'other'
 }
 
@@ -23,6 +25,7 @@ export function getFileIcon(fileType) {
         case 'image': return '🖼'
         case 'pdf': return '📄'
         case 'text': return '📝'
+        case 'html': return '🌐'
         default: return '📎'
     }
 }

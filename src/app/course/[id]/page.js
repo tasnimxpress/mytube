@@ -353,6 +353,36 @@ function CoursePlayer({ courseId }) {
             </div>
           )}
 
+          {/* ── Local: HTML file ── */}
+          {isLocal && !needsPermission && activeItem?.fileType === 'html' && (
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
+              <p style={{ fontSize: 16, color: 'var(--text-primary)', marginBottom: 8 }}>{activeItem.fullName}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
+                HTML files open in a new browser tab.
+              </p>
+              {localFileUrl && (
+                <a
+                  href={localFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: 'var(--accent)', color: '#0e0f11',
+                    border: 'none', borderRadius: 8,
+                    padding: '10px 24px', cursor: 'pointer',
+                    fontWeight: 600, fontSize: 14,
+                    textDecoration: 'none', display: 'inline-block',
+                  }}
+                >
+                  🌐 Open in new tab
+                </a>
+              )}
+              {!localFileUrl && !localError && (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+              )}
+            </div>
+          )}
+
           {/* ── Local: other file type ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'other' && (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
