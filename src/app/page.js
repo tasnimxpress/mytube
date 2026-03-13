@@ -442,9 +442,5 @@ const navBtn = {
 
 export default function CoursePage({ params }) {
   const { id } = use(params)
-  return (
-    <AppProvider>
-      <CoursePlayer courseId={id} />
-    </AppProvider>
-  )
+  return <CoursePlayer courseId={id} />
 }
