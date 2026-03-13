@@ -13,17 +13,29 @@ export async function loadCourses(userId) {
 }
 
 export async function saveCourse(course, userId) {
+  // For local courses: store metadata only — no file content, no handles
+  // File handles stay in IndexedDB on the user's browser
   const { error } = await supabase
     .from('courses')
     .upsert({
       id: course.id,
       user_id: userId,
-      playlist_id: course.playlistId,
+      type: course.type || 'youtube',
+      playlist_id: course.playlistId || null,
       title: course.title,
       channel: course.channelTitle,
-      thumbnail: course.thumbnail,
+      thumbnail: course.thumbnail || null,
       video_count: course.videoCount,
-      videos: course.videos,
+      // For local courses: store item metadata (names, types) but NOT file handles
+      videos: course.type === 'local'
+        ? course.videos.map(v => ({ id: v.id, name: v.name, fullName: v.fullName, fileType: v.fileType }))
+        : course.videos,
+      sections: course.type === 'local'
+        ? course.sections.map(s => ({
+          title: s.title,
+          items: s.items.map(i => ({ id: i.id, name: i.name, fullName: i.fullName, fileType: i.fileType }))
+        }))
+        : null,
       watched_videos: course.progress?.watchedVideos || [],
       percentage: course.progress?.percentage || 0,
       last_watched: course.progress?.lastWatched || null,
@@ -60,12 +72,14 @@ export async function updateProgress(courseId, userId, progress) {
 export function rowToCourse(row) {
   return {
     id: row.id,
+    type: row.type || 'youtube',
     playlistId: row.playlist_id,
     title: row.title,
     channelTitle: row.channel,
     thumbnail: row.thumbnail,
     videoCount: row.video_count,
     videos: row.videos || [],
+    sections: row.sections || null,
     addedAt: row.added_at,
     progress: {
       watchedVideos: row.watched_videos || [],

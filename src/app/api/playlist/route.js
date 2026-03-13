@@ -10,13 +10,13 @@ function parseDuration(iso) {
   const h = parseInt(match[1] || 0)
   const m = parseInt(match[2] || 0)
   const s = parseInt(match[3] || 0)
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-  return `${m}:${String(s).padStart(2,'0')}`
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 function getBestThumbnail(thumbnails) {
   return thumbnails?.maxres?.url || thumbnails?.high?.url ||
-         thumbnails?.medium?.url || thumbnails?.default?.url || ''
+    thumbnails?.medium?.url || thumbnails?.default?.url || ''
 }
 
 // ── YouTube Data API v3 ───────────────────────────────────────────────────────
@@ -64,6 +64,7 @@ async function fetchViaYouTube(playlistId) {
           title: item.snippet.title,
           thumbnail: getBestThumbnail(item.snippet.thumbnails),
           duration: det ? parseDuration(det.contentDetails.duration) : '',
+          description: det?.snippet?.description || '',
           channelTitle: item.snippet.videoOwnerChannelTitle || channelTitle,
           position: videos.length + idx,
         })
@@ -103,7 +104,7 @@ async function fetchViaSupadata(playlistId) {
     id: v.id,
     title: v.title || `Video ${idx + 1}`,
     thumbnail: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
-    duration: v.duration ? `${Math.floor(v.duration/60)}:${String(v.duration%60).padStart(2,'0')}` : '',
+    duration: v.duration ? `${Math.floor(v.duration / 60)}:${String(v.duration % 60).padStart(2, '0')}` : '',
     channelTitle: meta?.channel?.name || '',
     position: idx,
   }))

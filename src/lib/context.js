@@ -2,6 +2,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase, signInWithGoogle, signUpWithGoogle, signOut } from './supabase'
 import { loadCourses, saveCourse, deleteCourse, updateProgress, rowToCourse } from './storage'
+import { deleteFolderHandle } from './localCourse'
 
 const AppContext = createContext(null)
 
@@ -47,6 +48,8 @@ export function AppProvider({ children }) {
 
   const removeCourse = useCallback(async (courseId) => {
     await deleteCourse(courseId)
+    // Also clean up local folder handle from IndexedDB if it exists
+    await deleteFolderHandle(courseId).catch(() => { })
     setCourses(prev => prev.filter(c => c.id !== courseId))
   }, [])
 
@@ -57,7 +60,9 @@ export function AppProvider({ children }) {
       if (watched) watchedSet.add(videoId)
       else watchedSet.delete(videoId)
       const watchedVideos = Array.from(watchedSet)
-      const percentage = Math.round((watchedVideos.length / c.videos.length) * 100)
+      // For local courses count all items, for youtube count videos
+      const total = c.videos.length
+      const percentage = total > 0 ? Math.round((watchedVideos.length / total) * 100) : 0
       const updated = {
         ...c,
         progress: { ...c.progress, watchedVideos, percentage, lastWatched: videoId }
