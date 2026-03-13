@@ -5,10 +5,11 @@ import CourseCard from '@/components/CourseCard'
 import AddCourseModal from '@/components/AddCourseModal'
 
 const Logo = ({ size = 40 }) => (
-  <svg width={size} height={size * 0.72} viewBox="0 0 72 52" xmlns="http://www.w3.org/2000/svg">
-    <rect width="72" height="52" rx="12" fill="#2563eb" />
-    <polygon points="30,13 30,39 52,26" fill="white" />
-    <rect x="15" y="40" width="28" height="5" rx="2.5" fill="white" />
+  <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="12" width="92" height="80" rx="20" fill="#1a56b0" />
+    <rect x="4" y="6" width="92" height="76" rx="20" fill="#2d7dd2" />
+    <polygon points="50,16 20,60 80,60" fill="white" />
+    <rect x="20" y="66" width="60" height="11" rx="5.5" fill="white" />
   </svg>
 )
 
