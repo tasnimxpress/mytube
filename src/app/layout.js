@@ -1,5 +1,5 @@
 import './globals.css'
-import { AppProvider } from '@/lib/context'
+import Providers from '@/components/Providers'
 
 export const metadata = {
   title: 'MyTube · FocusLearn',
@@ -10,9 +10,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <AppProvider>
+        <Providers>
           {children}
-        </AppProvider>
+        </Providers>
       </body>
     </html>
   )
