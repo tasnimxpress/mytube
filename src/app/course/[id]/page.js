@@ -320,18 +320,30 @@ function CoursePlayer({ courseId }) {
 
           {/* ── Local: image viewer ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'image' && (
-            <div style={{ background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300, padding: 24 }}>
+            <div style={{
+              background: '#000', position: 'relative', width: '100%',
+              paddingTop: sidebarOpen ? '52%' : '56.25%',
+            }}>
               {localFileUrl && (
-                <img src={localFileUrl} alt={activeItem.name} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 8 }} />
+                <img src={localFileUrl} alt={activeItem.name} style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: '100%', height: '100%', objectFit: 'contain',
+                }} />
               )}
             </div>
           )}
 
           {/* ── Local: PDF viewer ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'pdf' && (
-            <div style={{ width: '100%', height: sidebarOpen ? '60vh' : '70vh' }}>
+            <div style={{
+              position: 'relative', width: '100%',
+              paddingTop: sidebarOpen ? '52%' : '56.25%',
+            }}>
               {localFileUrl && (
-                <iframe src={localFileUrl} style={{ width: '100%', height: '100%', border: 'none' }} title={activeItem.name} />
+                <iframe src={localFileUrl} style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: '100%', height: '100%', border: 'none',
+                }} title={activeItem.name} />
               )}
             </div>
           )}
@@ -354,43 +366,68 @@ function CoursePlayer({ courseId }) {
           )}
 
           {/* ── Local: HTML file ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'html' && (
-            <div style={{ padding: 40, textAlign: 'center' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
-              <p style={{ fontSize: 16, color: 'var(--text-primary)', marginBottom: 8 }}>{activeItem.fullName}</p>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
-                HTML files open in a new browser tab.
-              </p>
-              {localFileUrl && (
-                <a
-                  href={localFileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    background: 'var(--accent)', color: '#0e0f11',
-                    border: 'none', borderRadius: 8,
-                    padding: '10px 24px', cursor: 'pointer',
-                    fontWeight: 600, fontSize: 14,
-                    textDecoration: 'none', display: 'inline-block',
-                  }}
-                >
-                  🌐 Open in new tab
-                </a>
-              )}
-              {!localFileUrl && !localError && (
-                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
-              )}
-            </div>
-          )}
+          {isLocal && !needsPermission && (
+            activeItem?.fileType === 'html' ||
+            (activeItem?.fileType === 'other' && /\.html?$/i.test(activeItem?.fullName || ''))
+          ) && (
+              <div style={{
+                position: 'relative', width: '100%',
+                paddingTop: sidebarOpen ? '52%' : '56.25%',
+                background: 'var(--bg-card)',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: '100%', height: '100%',
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 16,
+                }}>
+                  <div style={{ fontSize: 48 }}>🌐</div>
+                  <p style={{ fontSize: 16, color: 'var(--text-primary)' }}>{activeItem.fullName}</p>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    HTML files open in a new browser tab.
+                  </p>
+                  {localFileUrl ? (
+                    <a
+                      href={localFileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        background: 'var(--accent)', color: '#0e0f11',
+                        borderRadius: 8, padding: '10px 24px',
+                        fontWeight: 600, fontSize: 14,
+                        textDecoration: 'none', display: 'inline-block',
+                      }}
+                    >
+                      🌐 Open in new tab
+                    </a>
+                  ) : !localError && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+                  )}
+                </div>
+              </div>
+            )}
 
           {/* ── Local: other file type ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'other' && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📎</div>
-              <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
-              <p style={{ fontSize: 13, marginTop: 8 }}>This file type cannot be previewed in the browser.</p>
-            </div>
-          )}
+          {isLocal && !needsPermission && activeItem?.fileType === 'other' &&
+            !/\.html?$/i.test(activeItem?.fullName || '') && (
+              <div style={{
+                position: 'relative', width: '100%',
+                paddingTop: sidebarOpen ? '52%' : '56.25%',
+                background: 'var(--bg-card)',
+              }}>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: '100%', height: '100%',
+                  display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', justifyContent: 'center', gap: 12,
+                  color: 'var(--text-muted)',
+                }}>
+                  <div style={{ fontSize: 48 }}>📎</div>
+                  <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
+                  <p style={{ fontSize: 13 }}>This file type cannot be previewed in the browser.</p>
+                </div>
+              </div>
+            )}
 
           {/* ── Local: file error ── */}
           {isLocal && localError && (
