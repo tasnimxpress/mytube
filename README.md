@@ -1,5 +1,5 @@
 # mytube
-FocusLearn turns any YouTube playlist into a clean, Udemy-style learning experience. Paste a playlist URL and it becomes a structured course with progress tracking — no suggestions, no comments, no chaos pulling you away.
+Mytube - Focuslearn turns any YouTube playlist into a clean, Udemy-style learning experience. Paste a playlist URL and it becomes a structured course with progress tracking — no suggestions, no comments, no chaos pulling you away.
 
 ** Features **
 - Distraction-free player — YouTube embedded without sidebar recommendations or related videos
