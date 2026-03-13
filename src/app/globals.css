@@ -33,7 +33,8 @@
   padding: 0;
 }
 
-html, body {
+html,
+body {
   background: var(--bg);
   color: var(--text-primary);
   font-family: var(--font-body);
@@ -46,37 +47,72 @@ html, body {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
 
 /* Animations */
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes pulse-accent {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
-  50%       { box-shadow: 0 0 0 8px transparent; }
-}
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.fade-up { animation: fadeUp 0.4s ease forwards; }
-.fade-in { animation: fadeIn 0.3s ease forwards; }
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-accent {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 var(--accent-glow);
+  }
+
+  50% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.fade-up {
+  animation: fadeUp 0.4s ease forwards;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
 
 .shimmer {
   background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
@@ -91,6 +127,7 @@ html, body {
   border-radius: 2px;
   overflow: hidden;
 }
+
 .progress-bar-fill {
   height: 100%;
   background: var(--accent);
@@ -111,10 +148,12 @@ html, body {
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
+
 .video-check.checked {
   background: var(--accent);
   border-color: var(--accent);
 }
+
 .video-check:hover:not(.checked) {
   border-color: var(--accent);
   background: var(--accent-dim);

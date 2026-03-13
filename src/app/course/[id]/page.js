@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { AppProvider, useApp } from '@/lib/context'
+import { useApp } from '@/lib/context'
 
 function CoursePlayer({ courseId }) {
   const router = useRouter()
@@ -151,9 +151,9 @@ function CoursePlayer({ courseId }) {
       </header>
 
       {/* Main layout */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, height: 0 }}>
         {/* Video area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'auto' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {/* Video player */}
           <div style={{
             background: '#000',
@@ -302,6 +302,7 @@ function CoursePlayer({ courseId }) {
             borderLeft: '1px solid var(--border)',
             display: 'flex', flexDirection: 'column',
             overflow: 'hidden',
+            height: '100%',
           }}>
             <div style={{
               padding: '14px 16px',
@@ -442,9 +443,5 @@ const navBtn = {
 
 export default function CoursePage({ params }) {
   const { id } = use(params)
-  return (
-    <AppProvider>
-      <CoursePlayer courseId={id} />
-    </AppProvider>
-  )
+  return <CoursePlayer courseId={id} />
 }
