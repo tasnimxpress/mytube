@@ -13,6 +13,6 @@ MyTube turns any public YouTube playlist into a clean, Udemy-style learning expe
 
 ## Tech Stack
 
-Next.js · Tailwind CSS · Piped API · File System Access API · Vercel
+Next.js · Tailwind CSS · API · Vercel
 
 ---
