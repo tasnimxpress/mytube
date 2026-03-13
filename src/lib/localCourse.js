@@ -37,8 +37,6 @@ async function readDirectory(dirHandle, depth = 0) {
     for await (const entry of dirHandle.values()) {
         entries.push(entry)
     }
-    // Sort by name
-    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
     for (const entry of entries) {
         if (entry.kind === 'file') {
