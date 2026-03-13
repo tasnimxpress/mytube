@@ -1,7 +1,7 @@
 # MyTube · FocusLearn
 
 **Watch YouTube playlists like a focused course. No recommendations. No distractions.**
-> Beta v0.1 — Live at [mytube-learn.vercel.app]([https://mytube-learn.vercel.app/])
+> Beta v0.1 — Live at [mytube-learn.vercel.app](https://mytube-learn.vercel.app/)
 
 ---
 
