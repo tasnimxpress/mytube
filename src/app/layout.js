@@ -3,7 +3,7 @@ import Providers from '@/components/Providers'
 
 export const metadata = {
   title: 'MyTube · FocusLearn',
-  description: 'Watch YouTube playlists like a focused course. No recommendations. No distractions.',
+  description: 'Watch YouTube playlists like a focused course. No distractions.',
 }
 
 export default function RootLayout({ children }) {
