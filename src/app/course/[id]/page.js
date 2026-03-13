@@ -4,6 +4,38 @@ import { useRouter } from 'next/navigation'
 import { useApp } from '@/lib/context'
 import { requestFolderAccess, saveFolderHandle, getFileUrl, getFileText, getFileIcon } from '@/lib/localCourse'
 
+// ── Shared media container styles ────────────────────────────────────────────
+// NAV_H  : top navbar height
+// CTRL_H : controls bar height
+// SIDEBAR_OFFSET : extra vertical reduction when sidebar is open (narrower
+//                  content width makes a full-height player feel too tall)
+const NAV_H = 56
+const CTRL_H = 49
+const SIDEBAR_OFFSET = 32
+
+// Returns the fixed pixel height for the media area based on sidebar state.
+function mediaHeight(sidebarOpen) {
+  const offset = sidebarOpen ? SIDEBAR_OFFSET : 0
+  return `calc(100vh - ${NAV_H}px - ${CTRL_H}px - ${offset}px)`
+}
+
+// Base wrapper — width/height set inline so it can react to sidebarOpen.
+const MEDIA_WRAPPER_BASE = {
+  background: '#000',
+  width: '100%',
+  flexShrink: 0,
+  position: 'relative',
+  overflow: 'hidden',
+}
+
+// Inner element fills the wrapper absolutely.
+const MEDIA_INNER = {
+  position: 'absolute',
+  top: 0, left: 0,
+  width: '100%', height: '100%',
+  border: 'none',
+}
+
 function CoursePlayer({ courseId }) {
   const router = useRouter()
   const { getCourse, markVideoWatched, setLastWatched, isLoading } = useApp()
@@ -38,20 +70,15 @@ function CoursePlayer({ courseId }) {
         setActiveItemId(first?.id || allItems[0]?.id)
       }
 
-      // For local courses request folder access
       if (c.type === 'local') {
         requestFolderAccess(courseId).then(handle => {
-          if (handle) {
-            setFolderHandle(handle)
-          } else {
-            setNeedsPermission(true)
-          }
+          if (handle) setFolderHandle(handle)
+          else setNeedsPermission(true)
         })
       }
     }
   }, [isLoading, courseId])
 
-  // Refresh course when context changes
   useEffect(() => {
     if (!isLoading) {
       const c = getCourse(courseId)
@@ -63,7 +90,6 @@ function CoursePlayer({ courseId }) {
   useEffect(() => {
     if (!course || course.type !== 'local' || !activeItemId || !folderHandle) return
 
-    // Revoke previous blob URL
     if (prevUrlRef.current) {
       URL.revokeObjectURL(prevUrlRef.current)
       prevUrlRef.current = null
@@ -80,12 +106,8 @@ function CoursePlayer({ courseId }) {
 
   async function loadLocalFile(item) {
     try {
-      // Find file in folder by name
       const fileHandle = await findFileInFolder(folderHandle, item.fullName, course.sections)
-      if (!fileHandle) {
-        setLocalError(`File not found: ${item.fullName}`)
-        return
-      }
+      if (!fileHandle) { setLocalError(`File not found: ${item.fullName}`); return }
 
       if (item.fileType === 'text') {
         const text = await getFileText(fileHandle)
@@ -100,21 +122,14 @@ function CoursePlayer({ courseId }) {
     }
   }
 
-  // Find a file handle by name within the folder structure
   async function findFileInFolder(rootHandle, fileName, sections) {
-    // Search top-level files first
-    try {
-      return await rootHandle.getFileHandle(fileName)
-    } catch (_) { }
-
-    // Search subfolders (sections)
+    try { return await rootHandle.getFileHandle(fileName) } catch (_) { }
     if (sections) {
       for (const section of sections) {
         if (!section.title) continue
         try {
           const subDir = await rootHandle.getDirectoryHandle(section.title)
-          const fh = await subDir.getFileHandle(fileName)
-          return fh
+          return await subDir.getFileHandle(fileName)
         } catch (_) { }
       }
     }
@@ -132,7 +147,6 @@ function CoursePlayer({ courseId }) {
     }
   }
 
-  // ── Item selection ──────────────────────────────────────────────────────────
   async function handleItemSelect(itemId) {
     setActiveItemId(itemId)
     await setLastWatched(courseId, itemId)
@@ -159,7 +173,6 @@ function CoursePlayer({ courseId }) {
     if (c) setCourse(c)
   }
 
-  // ── Loading / not found ─────────────────────────────────────────────────────
   if (!course) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -180,12 +193,19 @@ function CoursePlayer({ courseId }) {
   const watched = course.progress?.watchedVideos || []
   const isLocal = course.type === 'local'
 
-  // YouTube embed URL
   const embedUrl = !isLocal && activeItemId
     ? `https://www.youtube.com/embed/${activeItemId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&color=white`
     : ''
 
+  const isHtmlFile =
+    activeItem?.fileType === 'html' ||
+    (activeItem?.fileType === 'other' && /\.html?$/i.test(activeItem?.fullName || ''))
+
+  const isOtherFile =
+    activeItem?.fileType === 'other' && !/\.html?$/i.test(activeItem?.fullName || '')
+
   return (
+    // FIX 1: overflow:hidden on root prevents fullscreen from being scrollable
     <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Top navbar */}
       <header style={{
@@ -219,7 +239,6 @@ function CoursePlayer({ courseId }) {
           {course.title}
         </h1>
 
-        {/* Progress */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -248,330 +267,289 @@ function CoursePlayer({ courseId }) {
         </button>
       </header>
 
-      {/* Main layout */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0, height: 0 }}>
+      {/* Main layout — FIX 1: overflow:hidden keeps everything inside viewport */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
 
         {/* Content area */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
 
-          {/* ── Local: needs permission ── */}
-          {isLocal && needsPermission && (
-            <div style={{
-              flex: 1, display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
-            }}>
-              <div style={{ fontSize: 48 }}>📁</div>
-              <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>Re-open your course folder</h2>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center', maxWidth: 360 }}>
-                Browser security requires you to re-select the folder once per session.
-                Your progress is saved — this is just to re-grant file access.
-              </p>
-              <button
-                onClick={handleGrantAccess}
-                style={{
-                  background: 'var(--accent)', color: '#0e0f11',
-                  border: 'none', borderRadius: 10, padding: '12px 28px',
-                  fontWeight: 700, fontSize: 15, cursor: 'pointer',
-                }}
-              >
-                📁 Choose Folder
-              </button>
-            </div>
-          )}
+          {/* Scrollable inner — only the area BELOW the media scrolls */}
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 }}>
 
-          {/* ── YouTube player ── */}
-          {!isLocal && (
-            <div style={{
-              background: '#000', position: 'relative', width: '100%',
-              // paddingTop: sidebarOpen ? '52%' : '56.25%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%'
-            }}>
-              {embedUrl && (
-                <iframe
-                  ref={playerRef}
-                  key={activeItemId}
-                  src={embedUrl}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              )}
-            </div>
-          )}
+            {/* ── All media blocks share mw() for consistent fixed height ── */}
+            {/* mw() = MEDIA_WRAPPER_BASE + sidebar-aware height             */}
+            {(() => {
+              const mw = (extra) => ({ ...MEDIA_WRAPPER_BASE, height: mediaHeight(sidebarOpen), ...extra })
 
-          {/* ── Local: video player ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'video' && (
-            <div style={{
-              background: '#000', position: 'relative', width: '100%',
-              // paddingTop: sidebarOpen ? '52%' : '56.25%'
-              height: 'calc(100vh - 56px - 49px)'
-            }}>
-              {localFileUrl && (
-                <video
-                  key={localFileUrl}
-                  src={localFileUrl}
-                  controls
-                  autoPlay
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-                />
-              )}
-              {!localFileUrl && !localError && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
-                </div>
-              )}
-            </div>
-          )}
+              return (
+                <>
+                  {/* Local: needs permission */}
+                  {isLocal && needsPermission && (
+                    <div style={mw({
+                      background: 'var(--bg-card)',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
+                    })}>
+                      <div style={{ fontSize: 48 }}>📁</div>
+                      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>Re-open your course folder</h2>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: 14, textAlign: 'center', maxWidth: 360 }}>
+                        Browser security requires you to re-select the folder once per session.
+                        Your progress is saved — this is just to re-grant file access.
+                      </p>
+                      <button
+                        onClick={handleGrantAccess}
+                        style={{
+                          background: 'var(--accent)', color: '#0e0f11',
+                          border: 'none', borderRadius: 10, padding: '12px 28px',
+                          fontWeight: 700, fontSize: 15, cursor: 'pointer',
+                        }}
+                      >
+                        📁 Choose Folder
+                      </button>
+                    </div>
+                  )}
 
-          {/* ── Local: image viewer ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'image' && (
-            <div style={{
-              background: '#000', position: 'relative', width: '100%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%',
-            }}>
-              {localFileUrl && (
-                <img src={localFileUrl} alt={activeItem.name} style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%', objectFit: 'contain',
-                }} />
-              )}
-            </div>
-          )}
+                  {/* YouTube player */}
+                  {!isLocal && (
+                    <div style={mw()}>
+                      {embedUrl && (
+                        <iframe
+                          ref={playerRef}
+                          key={activeItemId}
+                          src={embedUrl}
+                          style={MEDIA_INNER}
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      )}
+                    </div>
+                  )}
 
-          {/* ── Local: PDF viewer ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'pdf' && (
-            <div style={{
-              position: 'relative', width: '100%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%',
-            }}>
-              {localFileUrl && (
-                <iframe src={localFileUrl} style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%', border: 'none',
-                }} title={activeItem.name} />
-              )}
-            </div>
-          )}
+                  {/* Local: video */}
+                  {isLocal && !needsPermission && activeItem?.fileType === 'video' && (
+                    <div style={mw()}>
+                      {localFileUrl ? (
+                        <video key={localFileUrl} src={localFileUrl} controls autoPlay style={MEDIA_INNER} />
+                      ) : !localError && (
+                        <div style={{ ...MEDIA_INNER, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
-          {/* ── Local: text viewer ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'text' && (
-            <div style={{ padding: 32, maxWidth: 800 }}>
-              <pre style={{
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                fontSize: 14, lineHeight: 1.7,
-                color: 'var(--text-primary)',
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border)',
-                borderRadius: 10, padding: 24,
-                fontFamily: 'monospace',
-              }}>
-                {localTextContent || 'Loading...'}
-              </pre>
-            </div>
-          )}
+                  {/* Local: image */}
+                  {isLocal && !needsPermission && activeItem?.fileType === 'image' && (
+                    <div style={mw()}>
+                      {localFileUrl && (
+                        <img src={localFileUrl} alt={activeItem.name} style={{ ...MEDIA_INNER, objectFit: 'contain' }} />
+                      )}
+                    </div>
+                  )}
 
-          {/* ── Local: HTML file ── */}
-          {isLocal && !needsPermission && (
-            activeItem?.fileType === 'html' ||
-            (activeItem?.fileType === 'other' && /\.html?$/i.test(activeItem?.fullName || ''))
-          ) && (
-              <div style={{
-                position: 'relative', width: '100%',
-                paddingTop: sidebarOpen ? '52%' : '56.25%',
-                background: 'var(--bg-card)',
-              }}>
+                  {/* Local: PDF */}
+                  {isLocal && !needsPermission && activeItem?.fileType === 'pdf' && (
+                    <div style={mw()}>
+                      {localFileUrl && (
+                        <iframe src={localFileUrl} style={MEDIA_INNER} title={activeItem.name} />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Local: text */}
+                  {isLocal && !needsPermission && activeItem?.fileType === 'text' && (
+                    <div style={mw({ background: 'var(--bg-card)' })}>
+                      <div style={{ ...MEDIA_INNER, overflowY: 'auto', padding: 24 }}>
+                        <pre style={{
+                          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                          fontSize: 14, lineHeight: 1.7,
+                          color: 'var(--text-primary)',
+                          fontFamily: 'monospace', margin: 0,
+                        }}>
+                          {localTextContent || 'Loading...'}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Local: HTML file */}
+                  {isLocal && !needsPermission && isHtmlFile && (
+                    <div style={mw({ background: 'var(--bg-card)' })}>
+                      <div style={{ ...MEDIA_INNER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+                        <div style={{ fontSize: 48 }}>🌐</div>
+                        <p style={{ fontSize: 16, color: 'var(--text-primary)' }}>{activeItem.fullName}</p>
+                        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>HTML files open in a new browser tab.</p>
+                        {localFileUrl ? (
+                          <a href={localFileUrl} target="_blank" rel="noopener noreferrer" style={{
+                            background: 'var(--accent)', color: '#0e0f11',
+                            borderRadius: 8, padding: '10px 24px',
+                            fontWeight: 600, fontSize: 14,
+                            textDecoration: 'none', display: 'inline-block',
+                          }}>
+                            🌐 Open in new tab
+                          </a>
+                        ) : !localError && (
+                          <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Local: other file type */}
+                  {isLocal && !needsPermission && isOtherFile && (
+                    <div style={mw({ background: 'var(--bg-card)' })}>
+                      <div style={{ ...MEDIA_INNER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: 48 }}>📎</div>
+                        <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
+                        <p style={{ fontSize: 13 }}>This file type cannot be previewed in the browser.</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            })()}
+
+            {/* Local: file error */}
+            {isLocal && localError && (
+              <div style={{ padding: 24 }}>
                 <div style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 16,
+                  background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
+                  borderRadius: 8, padding: '12px 16px', color: 'var(--danger)', fontSize: 13,
                 }}>
-                  <div style={{ fontSize: 48 }}>🌐</div>
-                  <p style={{ fontSize: 16, color: 'var(--text-primary)' }}>{activeItem.fullName}</p>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    HTML files open in a new browser tab.
-                  </p>
-                  {localFileUrl ? (
-                    <a
-                      href={localFileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        background: 'var(--accent)', color: '#0e0f11',
-                        borderRadius: 8, padding: '10px 24px',
-                        fontWeight: 600, fontSize: 14,
-                        textDecoration: 'none', display: 'inline-block',
-                      }}
+                  ⚠️ {localError}
+                </div>
+              </div>
+            )}
+
+            {/* Controls bar */}
+            {(!isLocal || !needsPermission) && (
+              <div style={{
+                background: 'var(--bg-card)', borderBottom: '1px solid var(--border)',
+                padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                flexShrink: 0,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h2 style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {isLocal
+                      ? <>{getFileIcon(activeItem?.fileType)} {activeItem?.name}</>
+                      : <>{activeIdx + 1}. {activeItem?.title}</>
+                    }
+                  </h2>
+                  {!isLocal && activeItem?.duration && (
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{activeItem.duration}</span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  {activeIdx > 0 && (
+                    <button onClick={() => handleItemSelect(allItems[activeIdx - 1].id)} style={navBtn}>← Prev</button>
+                  )}
+                  <button
+                    onClick={() => handleToggleWatched(activeItemId)}
+                    style={{
+                      ...navBtn,
+                      background: watched.includes(activeItemId) ? 'var(--accent-dim)' : 'transparent',
+                      color: watched.includes(activeItemId) ? 'var(--accent)' : 'var(--text-secondary)',
+                      borderColor: watched.includes(activeItemId) ? 'var(--accent)' : 'var(--border)',
+                    }}
+                  >
+                    {watched.includes(activeItemId) ? '✓ Done' : 'Mark done'}
+                  </button>
+                  {activeIdx < allItems.length - 1 && (
+                    <button
+                      onClick={() => handleMarkAndNext(activeItemId)}
+                      style={{ ...navBtn, background: 'var(--accent)', color: '#0e0f11', border: 'none', fontWeight: 600 }}
                     >
-                      🌐 Open in new tab
-                    </a>
-                  ) : !localError && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+                      Next →
+                    </button>
                   )}
                 </div>
               </div>
             )}
 
-          {/* ── Local: other file type ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'other' &&
-            !/\.html?$/i.test(activeItem?.fullName || '') && (
-              <div style={{
-                position: 'relative', width: '100%',
-                paddingTop: sidebarOpen ? '52%' : '56.25%',
-                background: 'var(--bg-card)',
-              }}>
-                <div style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 12,
-                  color: 'var(--text-muted)',
-                }}>
-                  <div style={{ fontSize: 48 }}>📎</div>
-                  <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
-                  <p style={{ fontSize: 13 }}>This file type cannot be previewed in the browser.</p>
-                </div>
-              </div>
-            )}
-
-          {/* ── Local: file error ── */}
-          {isLocal && localError && (
-            <div style={{ padding: 24 }}>
-              <div style={{
-                background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)',
-                borderRadius: 8, padding: '12px 16px', color: 'var(--danger)', fontSize: 13,
-              }}>
-                ⚠️ {localError}
-              </div>
-            </div>
-          )}
-
-          {/* Controls bar */}
-          {(!isLocal || !needsPermission) && (
-            <div style={{
-              background: 'var(--bg-card)', borderBottom: '1px solid var(--border)',
-              padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h2 style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {isLocal
-                    ? <>{getFileIcon(activeItem?.fileType)} {activeItem?.name}</>
-                    : <>{activeIdx + 1}. {activeItem?.title}</>
-                  }
-                </h2>
-                {!isLocal && activeItem?.duration && (
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{activeItem.duration}</span>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                {activeIdx > 0 && (
-                  <button onClick={() => handleItemSelect(allItems[activeIdx - 1].id)} style={navBtn}>← Prev</button>
-                )}
+            {/* YouTube description */}
+            {!isLocal && activeItem?.description && (
+              <div style={{ padding: '0 24px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
                 <button
-                  onClick={() => handleToggleWatched(activeItemId)}
+                  onClick={() => setDescOpen(!descOpen)}
                   style={{
-                    ...navBtn,
-                    background: watched.includes(activeItemId) ? 'var(--accent-dim)' : 'transparent',
-                    color: watched.includes(activeItemId) ? 'var(--accent)' : 'var(--text-secondary)',
-                    borderColor: watched.includes(activeItemId) ? 'var(--accent)' : 'var(--border)',
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    color: 'var(--text-secondary)', fontSize: 13,
+                    padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6,
                   }}
                 >
-                  {watched.includes(activeItemId) ? '✓ Done' : 'Mark done'}
+                  {descOpen ? '▾' : '▸'} Description
                 </button>
-                {activeIdx < allItems.length - 1 && (
-                  <button
-                    onClick={() => handleMarkAndNext(activeItemId)}
-                    style={{ ...navBtn, background: 'var(--accent)', color: '#0e0f11', border: 'none', fontWeight: 600 }}
-                  >
-                    Next →
-                  </button>
+                {descOpen && (
+                  <div style={{ paddingBottom: 16, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                    {activeItem.description.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                      /^https?:\/\//.test(part)
+                        ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{part}</a>
+                        : part
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* YouTube description */}
-          {!isLocal && activeItem?.description && (
-            <div style={{ padding: '0 24px', borderBottom: '1px solid var(--border)' }}>
-              <button
-                onClick={() => setDescOpen(!descOpen)}
-                style={{
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: 'var(--text-secondary)', fontSize: 13,
-                  padding: '10px 0', display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {descOpen ? '▾' : '▸'} Description
-              </button>
-              {descOpen && (
-                <div style={{ paddingBottom: 16, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-                  {activeItem.description.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
-                    /^https?:\/\//.test(part)
-                      ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{part}</a>
-                      : part
-                  )}
+            {/* Tabs */}
+            <div style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', gap: 0, flexShrink: 0 }}>
+              {['content', 'overview'].map(t => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    background: 'transparent', border: 'none',
+                    borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
+                    color: tab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    padding: '12px 16px', cursor: 'pointer',
+                    fontSize: 14, fontWeight: tab === t ? 600 : 400,
+                    textTransform: 'capitalize',
+                  }}
+                >
+                  {t === 'content' ? 'Course content' : 'Overview'}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div style={{ padding: 24 }}>
+              {tab === 'overview' && (
+                <div>
+                  <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginBottom: 12 }}>{course.title}</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 16 }}>
+                    {isLocal ? '📁 Local Course' : `by ${course.channelTitle}`}
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
+                    <InfoTile label="Total Items" value={course.videoCount} />
+                    <InfoTile label="Done" value={watched.length} />
+                    <InfoTile label="Remaining" value={course.videoCount - watched.length} />
+                    <InfoTile label="Progress" value={`${pct}%`} accent />
+                  </div>
+                  <div className="progress-bar" style={{ height: 8, borderRadius: 4 }}>
+                    <div className="progress-bar-fill" style={{ width: `${pct}%`, borderRadius: 4 }} />
+                  </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Tabs */}
-          <div style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', gap: 0 }}>
-            {['content', 'overview'].map(t => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  background: 'transparent', border: 'none',
-                  borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent',
-                  color: tab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  padding: '12px 16px', cursor: 'pointer',
-                  fontSize: 14, fontWeight: tab === t ? 600 : 400,
-                  textTransform: 'capitalize',
-                }}
-              >
-                {t === 'content' ? 'Course content' : 'Overview'}
-              </button>
-            ))}
-          </div>
-
-          {/* Tab content */}
-          <div style={{ padding: 24, flex: 1 }}>
-            {tab === 'overview' && (
-              <div>
-                <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, marginBottom: 12 }}>{course.title}</h3>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 16 }}>
-                  {isLocal ? '📁 Local Course' : `by ${course.channelTitle}`}
+              {tab === 'content' && (
+                <div style={{ display: sidebarOpen ? 'none' : 'block' }}>
+                  <ItemList
+                    course={course}
+                    activeItemId={activeItemId}
+                    watched={watched}
+                    onSelect={handleItemSelect}
+                    onToggle={handleToggleWatched}
+                  />
+                </div>
+              )}
+              {tab === 'content' && sidebarOpen && (
+                <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
+                  Course content is shown in the sidebar →
                 </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 20 }}>
-                  <InfoTile label="Total Items" value={course.videoCount} />
-                  <InfoTile label="Done" value={watched.length} />
-                  <InfoTile label="Remaining" value={course.videoCount - watched.length} />
-                  <InfoTile label="Progress" value={`${pct}%`} accent />
-                </div>
-                <div className="progress-bar" style={{ height: 8, borderRadius: 4 }}>
-                  <div className="progress-bar-fill" style={{ width: `${pct}%`, borderRadius: 4 }} />
-                </div>
-              </div>
-            )}
-            {tab === 'content' && (
-              <div style={{ display: sidebarOpen ? 'none' : 'block' }}>
-                <ItemList
-                  course={course}
-                  activeItemId={activeItemId}
-                  watched={watched}
-                  onSelect={handleItemSelect}
-                  onToggle={handleToggleWatched}
-                />
-              </div>
-            )}
-            {tab === 'content' && sidebarOpen && (
-              <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>
-                Course content is shown in the sidebar →
-              </p>
-            )}
-          </div>
+              )}
+            </div>
+
+          </div>{/* end scrollable inner */}
         </div>
 
         {/* Sidebar */}
@@ -587,6 +565,7 @@ function CoursePlayer({ courseId }) {
               padding: '14px 16px', borderBottom: '1px solid var(--border)',
               fontWeight: 600, fontSize: 14,
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              flexShrink: 0,
             }}>
               <span>Course content</span>
               <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400 }}>
@@ -610,7 +589,7 @@ function CoursePlayer({ courseId }) {
   )
 }
 
-// ── Item list — handles both YouTube (flat) and local (sections) ──────────────
+// ── Item list ─────────────────────────────────────────────────────────────────
 function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
   const isLocal = course.type === 'local'
 
@@ -649,7 +628,6 @@ function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
     )
   }
 
-  // YouTube flat list
   return (
     <div>
       {(course.videos || []).map((video, idx) => (
@@ -682,7 +660,6 @@ function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }
       onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-hover)' }}
       onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
     >
-      {/* Checkbox */}
       <div
         className={`video-check ${isWatched ? 'checked' : ''}`}
         onClick={e => onToggle(item.id, e)}
@@ -695,7 +672,6 @@ function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }
         )}
       </div>
 
-      {/* Thumbnail (YouTube) or file icon (local) */}
       {!isLocal ? (
         <div style={{ width: 80, height: 46, flexShrink: 0, background: '#111', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
           {item.thumbnail && <img src={item.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
@@ -719,7 +695,6 @@ function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }
         </div>
       )}
 
-      {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{
           fontSize: 13, lineHeight: 1.4,
