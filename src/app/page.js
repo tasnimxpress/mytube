@@ -6,10 +6,9 @@ import AddCourseModal from '@/components/AddCourseModal'
 
 const Logo = ({ size = 40 }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <rect x="4" y="12" width="92" height="80" rx="20" fill="#1a56b0" />
-    <rect x="4" y="6" width="92" height="76" rx="20" fill="#2d7dd2" />
-    <polygon points="50,16 20,60 80,60" fill="white" />
-    <rect x="20" y="66" width="60" height="11" rx="5.5" fill="white" />
+    <rect x="4" y="8" width="92" height="84" rx="22" fill="#2d7dd2" />
+    <polygon points="50,22 22,62 78,62" fill="white" />
+    <rect x="28" y="70" width="44" height="10" rx="5" fill="white" />
   </svg>
 )
 
