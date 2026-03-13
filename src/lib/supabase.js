@@ -12,7 +12,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-// Sign UP — shows Google account picker
+// Sign UP — always shows Google account picker
 export async function signUpWithGoogle() {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -20,14 +20,15 @@ export async function signUpWithGoogle() {
       redirectTo: `${window.location.origin}/auth/callback`,
       queryParams: {
         access_type: 'offline',
-        prompt: 'select_account', // always show account picker for new users
+        prompt: 'select_account',
       },
     },
   })
   if (error) throw error
 }
 
-// Sign IN — skips account picker, logs in silently
+// Sign IN — also shows account picker (most reliable approach)
+// prompt: 'none' causes interaction_required errors in most browsers
 export async function signInWithGoogle() {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -35,7 +36,7 @@ export async function signInWithGoogle() {
       redirectTo: `${window.location.origin}/auth/callback`,
       queryParams: {
         access_type: 'offline',
-        prompt: 'none', // no account picker — silent login
+        prompt: 'select_account',
       },
     },
   })
