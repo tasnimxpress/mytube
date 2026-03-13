@@ -282,15 +282,15 @@ function CoursePlayer({ courseId }) {
           {/* ── YouTube player ── */}
           {!isLocal && (
             <div style={{
-              background: '#000', position: 'relative', width: '100%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%',
+              background: '#000', width: '100%',
+              height: 'calc(100vh - 56px - 49px)', flexShrink: 0,
             }}>
               {embedUrl && (
                 <iframe
                   ref={playerRef}
                   key={activeItemId}
                   src={embedUrl}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                 />
@@ -300,18 +300,18 @@ function CoursePlayer({ courseId }) {
 
           {/* ── Local: video player ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'video' && (
-            <div style={{ background: '#000', position: 'relative', width: '100%', paddingTop: sidebarOpen ? '52%' : '56.25%' }}>
+            <div style={{ background: '#000', width: '100%', height: 'calc(100vh - 56px - 49px)', flexShrink: 0 }}>
               {localFileUrl && (
                 <video
                   key={localFileUrl}
                   src={localFileUrl}
                   controls
                   autoPlay
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+                  style={{ width: '100%', height: '100%' }}
                 />
               )}
               {!localFileUrl && !localError && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                   <div style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
                 </div>
               )}
@@ -320,30 +320,18 @@ function CoursePlayer({ courseId }) {
 
           {/* ── Local: image viewer ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'image' && (
-            <div style={{
-              background: '#000', position: 'relative', width: '100%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%',
-            }}>
+            <div style={{ background: '#000', width: '100%', height: 'calc(100vh - 56px - 49px)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {localFileUrl && (
-                <img src={localFileUrl} alt={activeItem.name} style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%', objectFit: 'contain',
-                }} />
+                <img src={localFileUrl} alt={activeItem.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
               )}
             </div>
           )}
 
           {/* ── Local: PDF viewer ── */}
           {isLocal && !needsPermission && activeItem?.fileType === 'pdf' && (
-            <div style={{
-              position: 'relative', width: '100%',
-              paddingTop: sidebarOpen ? '52%' : '56.25%',
-            }}>
+            <div style={{ width: '100%', height: 'calc(100vh - 56px - 49px)', flexShrink: 0 }}>
               {localFileUrl && (
-                <iframe src={localFileUrl} style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%', border: 'none',
-                }} title={activeItem.name} />
+                <iframe src={localFileUrl} style={{ width: '100%', height: '100%', border: 'none' }} title={activeItem.name} />
               )}
             </div>
           )}
@@ -366,68 +354,43 @@ function CoursePlayer({ courseId }) {
           )}
 
           {/* ── Local: HTML file ── */}
-          {isLocal && !needsPermission && (
-            activeItem?.fileType === 'html' ||
-            (activeItem?.fileType === 'other' && /\.html?$/i.test(activeItem?.fullName || ''))
-          ) && (
-              <div style={{
-                position: 'relative', width: '100%',
-                paddingTop: sidebarOpen ? '52%' : '56.25%',
-                background: 'var(--bg-card)',
-              }}>
-                <div style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 16,
-                }}>
-                  <div style={{ fontSize: 48 }}>🌐</div>
-                  <p style={{ fontSize: 16, color: 'var(--text-primary)' }}>{activeItem.fullName}</p>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                    HTML files open in a new browser tab.
-                  </p>
-                  {localFileUrl ? (
-                    <a
-                      href={localFileUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        background: 'var(--accent)', color: '#0e0f11',
-                        borderRadius: 8, padding: '10px 24px',
-                        fontWeight: 600, fontSize: 14,
-                        textDecoration: 'none', display: 'inline-block',
-                      }}
-                    >
-                      🌐 Open in new tab
-                    </a>
-                  ) : !localError && (
-                    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
-                  )}
-                </div>
-              </div>
-            )}
+          {isLocal && !needsPermission && activeItem?.fileType === 'html' && (
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>🌐</div>
+              <p style={{ fontSize: 16, color: 'var(--text-primary)', marginBottom: 8 }}>{activeItem.fullName}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
+                HTML files open in a new browser tab.
+              </p>
+              {localFileUrl && (
+                <a
+                  href={localFileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    background: 'var(--accent)', color: '#0e0f11',
+                    border: 'none', borderRadius: 8,
+                    padding: '10px 24px', cursor: 'pointer',
+                    fontWeight: 600, fontSize: 14,
+                    textDecoration: 'none', display: 'inline-block',
+                  }}
+                >
+                  🌐 Open in new tab
+                </a>
+              )}
+              {!localFileUrl && !localError && (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading...</div>
+              )}
+            </div>
+          )}
 
           {/* ── Local: other file type ── */}
-          {isLocal && !needsPermission && activeItem?.fileType === 'other' &&
-            !/\.html?$/i.test(activeItem?.fullName || '') && (
-              <div style={{
-                position: 'relative', width: '100%',
-                paddingTop: sidebarOpen ? '52%' : '56.25%',
-                background: 'var(--bg-card)',
-              }}>
-                <div style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 12,
-                  color: 'var(--text-muted)',
-                }}>
-                  <div style={{ fontSize: 48 }}>📎</div>
-                  <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
-                  <p style={{ fontSize: 13 }}>This file type cannot be previewed in the browser.</p>
-                </div>
-              </div>
-            )}
+          {isLocal && !needsPermission && activeItem?.fileType === 'other' && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: 48, marginBottom: 16 }}>📎</div>
+              <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
+              <p style={{ fontSize: 13, marginTop: 8 }}>This file type cannot be previewed in the browser.</p>
+            </div>
+          )}
 
           {/* ── Local: file error ── */}
           {isLocal && localError && (
