@@ -3,44 +3,112 @@ import { useState, useRef } from 'react'
 import { AppProvider, useApp } from '@/lib/context'
 import CourseCard from '@/components/CourseCard'
 import AddCourseModal from '@/components/AddCourseModal'
-import StorageSetupBanner from '@/components/StorageSetupBanner'
 
 function HomePage() {
-  const { data, isLoading, storageType, handleExport, handleImport } = useApp()
+  const { user, courses, isLoading, signInWithGoogle, signOut } = useApp()
   const [showModal, setShowModal] = useState(false)
-  const importRef = useRef()
 
   if (isLoading) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: 16,
+        minHeight: '100vh', display: 'flex',
+        alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16,
       }}>
         <div style={{
           width: 40, height: 40, borderRadius: '50%',
-          border: '2px solid var(--border)',
-          borderTop: '2px solid var(--accent)',
+          border: '2px solid var(--border)', borderTop: '2px solid var(--accent)',
           animation: 'spin 0.8s linear infinite',
         }} />
-        <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading your courses...</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
   }
 
-  const courses = data?.courses || []
+  // ── Login screen ────────────────────────────────────────────────────────────
+  if (!user) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}>
+        <div className="fade-up" style={{
+          textAlign: 'center', maxWidth: 420,
+        }}>
+          <div style={{
+            width: 72, height: 72, borderRadius: 20,
+            background: 'var(--accent)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 36, margin: '0 auto 24px',
+          }}>
+            🎯
+          </div>
+          <h1 style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 40, lineHeight: 1.1, marginBottom: 8,
+          }}>
+            MyTube
+          </h1>
+          <p style={{
+            color: 'var(--accent)', fontSize: 13,
+            letterSpacing: '0.1em', textTransform: 'uppercase',
+            marginBottom: 16,
+          }}>
+            focuslearn
+          </p>
+          <p style={{
+            color: 'var(--text-secondary)', fontSize: 16,
+            lineHeight: 1.7, marginBottom: 40,
+          }}>
+            Watch YouTube playlists like a focused course.
+            No recommendations. No distractions.
+          </p>
+          <button
+            onClick={signInWithGoogle}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: '#fff', color: '#111',
+              border: 'none', borderRadius: 12,
+              padding: '14px 28px', cursor: 'pointer',
+              fontWeight: 600, fontSize: 15,
+              margin: '0 auto',
+              transition: 'transform 0.15s, box-shadow 0.15s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = 'translateY(-2px)'
+              e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = 'none'
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.1 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.7-8 19.7-20 0-1.3-.1-2.7-.4-4z"/>
+              <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.5 15.1 18.9 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
+              <path fill="#4CAF50" d="M24 44c5.2 0 9.9-1.9 13.5-5l-6.2-5.2C29.4 35.6 26.8 36 24 36c-5.2 0-9.6-3-11.3-7.3l-6.5 5C9.6 39.6 16.3 44 24 44z"/>
+              <path fill="#1976D2" d="M43.6 20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.8l6.2 5.2C41 35.8 44 30.3 44 24c0-1.3-.1-2.7-.4-4z"/>
+            </svg>
+            Continue with Google
+          </button>
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 20 }}>
+            Your courses are saved to your account — access from any device.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
+  // ── Main app ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', padding: '0 0 60px' }}>
+    <div style={{ minHeight: '100vh', paddingBottom: 60 }}>
       {/* Header */}
       <header style={{
         borderBottom: '1px solid var(--border-subtle)',
-        padding: '0 32px',
-        height: 64,
+        padding: '0 32px', height: 64,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 100,
-        background: 'rgba(14,15,17,0.9)',
-        backdropFilter: 'blur(12px)',
+        background: 'rgba(14,15,17,0.9)', backdropFilter: 'blur(12px)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
@@ -48,44 +116,41 @@ function HomePage() {
             background: 'var(--accent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16,
-          }}>
-            🎯
-          </div>
+          }}>🎯</div>
           <div>
             <span style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: 20, letterSpacing: '-0.02em',
+              fontFamily: 'var(--font-display)', fontSize: 20,
               display: 'block', lineHeight: 1.1,
-            }}>
-              MyTube
-            </span>
+            }}>MyTube</span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
               focuslearn
             </span>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            ref={importRef}
-            type="file"
-            accept=".json"
-            style={{ display: 'none' }}
-            onChange={async e => {
-              const file = e.target.files[0]
-              if (file) await handleImport(file)
-              e.target.value = ''
-            }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* User avatar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {user.user_metadata?.avatar_url && (
+              <img
+                src={user.user_metadata.avatar_url}
+                alt="avatar"
+                style={{ width: 28, height: 28, borderRadius: '50%' }}
+              />
+            )}
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              {user.user_metadata?.full_name?.split(' ')[0] || 'You'}
+            </span>
+          </div>
           <button
-            onClick={() => importRef.current?.click()}
-            style={ghostBtn}
-            title="Import data"
+            onClick={signOut}
+            style={{
+              background: 'transparent', color: 'var(--text-muted)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              padding: '6px 12px', fontSize: 13, cursor: 'pointer',
+            }}
           >
-            ↑ Import
-          </button>
-          <button onClick={handleExport} style={ghostBtn} title="Export data">
-            ↓ Export
+            Sign out
           </button>
           <button
             onClick={() => setShowModal(true)}
@@ -94,19 +159,16 @@ function HomePage() {
               border: 'none', borderRadius: 8,
               padding: '8px 18px', fontWeight: 600,
               fontSize: 14, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
             }}
           >
-            <span style={{ fontSize: 16 }}>+</span> Add Course
+            + Add Course
           </button>
         </div>
       </header>
 
       {/* Main */}
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 32px 0' }}>
-        <StorageSetupBanner />
-
-        {/* Stats bar */}
+        {/* Stats */}
         {courses.length > 0 && (
           <div style={{
             display: 'flex', gap: 24, marginBottom: 32,
@@ -117,30 +179,15 @@ function HomePage() {
           }}>
             <Stat label="Courses" value={courses.length} />
             <div style={{ width: 1, background: 'var(--border)' }} />
-            <Stat
-              label="Videos Total"
-              value={courses.reduce((s, c) => s + (c.videoCount || 0), 0)}
-            />
+            <Stat label="Videos Total" value={courses.reduce((s, c) => s + (c.videoCount || 0), 0)} />
             <div style={{ width: 1, background: 'var(--border)' }} />
-            <Stat
-              label="Watched"
-              value={courses.reduce((s, c) => s + (c.progress?.watchedVideos?.length || 0), 0)}
-            />
+            <Stat label="Watched" value={courses.reduce((s, c) => s + (c.progress?.watchedVideos?.length || 0), 0)} />
             <div style={{ width: 1, background: 'var(--border)' }} />
-            <Stat
-              label="Completed"
-              value={courses.filter(c => c.progress?.percentage === 100).length}
-              accent
-            />
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                {storageType === 'file' ? '💾 Saved to file' : '🗄️ Saved in browser'}
-              </span>
-            </div>
+            <Stat label="Completed" value={courses.filter(c => c.progress?.percentage === 100).length} accent />
           </div>
         )}
 
-        {/* Course grid */}
+        {/* Courses grid */}
         {courses.length === 0 ? (
           <EmptyState onAdd={() => setShowModal(true)} />
         ) : (
@@ -157,11 +204,8 @@ function HomePage() {
               gap: 20,
             }}>
               {courses.map((course, i) => (
-                <div
-                  key={course.id}
-                  className="fade-up"
-                  style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}
-                >
+                <div key={course.id} className="fade-up"
+                  style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
                   <CourseCard course={course} />
                 </div>
               ))}
@@ -182,9 +226,7 @@ function Stat({ label, value, accent }) {
         fontSize: 22, fontWeight: 700,
         fontFamily: 'var(--font-display)',
         color: accent ? 'var(--accent)' : 'var(--text-primary)',
-      }}>
-        {value}
-      </p>
+      }}>{value}</p>
       <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{label}</p>
     </div>
   )
@@ -203,45 +245,26 @@ function EmptyState({ onAdd }) {
         border: '1px solid rgba(74,222,128,0.2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 36,
-      }}>
-        🎓
-      </div>
+      }}>🎓</div>
       <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 28 }}>
         No distractions.<br />Just learning.
       </h2>
       <p style={{ color: 'var(--text-secondary)', maxWidth: 360, lineHeight: 1.7 }}>
         Paste any public YouTube playlist — MyTube turns it into a focused course.
-        No API key. No account. No chaos.
+        No chaos. Just progress.
       </p>
-      <button
-        onClick={onAdd}
-        style={{
-          background: 'var(--accent)', color: '#0e0f11',
-          border: 'none', borderRadius: 10,
-          padding: '12px 28px', fontWeight: 700,
-          fontSize: 15, cursor: 'pointer',
-          marginTop: 8,
-        }}
-      >
+      <button onClick={onAdd} style={{
+        background: 'var(--accent)', color: '#0e0f11',
+        border: 'none', borderRadius: 10,
+        padding: '12px 28px', fontWeight: 700,
+        fontSize: 15, cursor: 'pointer', marginTop: 8,
+      }}>
         + Add Your First Course
       </button>
     </div>
   )
 }
 
-const ghostBtn = {
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  padding: '7px 14px',
-  fontSize: 13, cursor: 'pointer',
-}
-
 export default function Page() {
-  return (
-    <AppProvider>
-      <HomePage />
-    </AppProvider>
-  )
+  return <AppProvider><HomePage /></AppProvider>
 }

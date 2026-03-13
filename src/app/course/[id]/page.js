@@ -5,7 +5,7 @@ import { AppProvider, useApp } from '@/lib/context'
 
 function CoursePlayer({ courseId }) {
   const router = useRouter()
-  const { getCourse, markVideoWatched, setLastWatched, isLoading } = useApp()
+  const { getCourse, markVideoWatched, setLastWatched, isLoading, courses } = useApp()
   const [course, setCourse] = useState(null)
   const [activeVideoId, setActiveVideoId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)

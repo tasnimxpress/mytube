@@ -1,95 +1,90 @@
 'use client'
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { initStorage, loadData, saveData, setupFileStorage, exportJSON, importJSON } from '@/lib/storage'
+import { supabase, signInWithGoogle, signOut } from './supabase'
+import { loadCourses, saveCourse, deleteCourse, updateProgress, rowToCourse } from './storage'
 
 const AppContext = createContext(null)
 
 export function AppProvider({ children }) {
-  const [data, setData] = useState(null)
-  const [storageType, setStorageType] = useState(null)
-  const [needsSetup, setNeedsSetup] = useState(false)
+  const [user, setUser] = useState(null)
+  const [courses, setCourses] = useState([])
   const [isLoading, setIsLoading] = useState(true)
 
+  // ── Auth listener ───────────────────────────────────────────────────────────
   useEffect(() => {
-    async function init() {
-      const result = await initStorage()
-      setData(result.data)
-      setStorageType(result.storageType)
-      setNeedsSetup(result.needsSetup)
-      setIsLoading(false)
-    }
-    init()
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user || null)
+      if (session?.user) fetchCourses(session.user.id)
+      else setIsLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null)
+      if (session?.user) fetchCourses(session.user.id)
+      else { setCourses([]); setIsLoading(false) }
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
-  const persist = useCallback(async (newData) => {
-    const saved = await saveData(newData, storageType)
-    setData({ ...saved })
-    return saved
-  }, [storageType])
+  async function fetchCourses(userId) {
+    setIsLoading(true)
+    try {
+      const rows = await loadCourses(userId)
+      setCourses(rows.map(rowToCourse))
+    } catch (e) {
+      console.error('Failed to load courses:', e)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-  const addCourse = useCallback(async (courseObj) => {
-    const newData = { ...data, courses: [...(data.courses || []), courseObj] }
-    return persist(newData)
-  }, [data, persist])
+  // ── Course actions ──────────────────────────────────────────────────────────
+  const addCourse = useCallback(async (course) => {
+    await saveCourse(course, user.id)
+    setCourses(prev => [course, ...prev])
+  }, [user])
 
-  const deleteCourse = useCallback(async (courseId) => {
-    const newData = { ...data, courses: data.courses.filter(c => c.id !== courseId) }
-    return persist(newData)
-  }, [data, persist])
+  const removeCourse = useCallback(async (courseId) => {
+    await deleteCourse(courseId)
+    setCourses(prev => prev.filter(c => c.id !== courseId))
+  }, [])
 
   const markVideoWatched = useCallback(async (courseId, videoId, watched) => {
-    const courses = data.courses.map(c => {
+    setCourses(prev => prev.map(c => {
       if (c.id !== courseId) return c
-      const watchedSet = new Set(c.progress?.watchedVideos || [])
+      const watchedSet = new Set(c.progress.watchedVideos)
       if (watched) watchedSet.add(videoId)
       else watchedSet.delete(videoId)
       const watchedVideos = Array.from(watchedSet)
       const percentage = Math.round((watchedVideos.length / c.videos.length) * 100)
-      return {
+      const updated = {
         ...c,
-        progress: {
-          ...c.progress,
-          watchedVideos,
-          percentage,
-          lastWatched: videoId,
-          lastWatchedAt: new Date().toISOString(),
-        }
+        progress: { ...c.progress, watchedVideos, percentage, lastWatched: videoId }
       }
-    })
-    return persist({ ...data, courses })
-  }, [data, persist])
+      updateProgress(courseId, user.id, updated.progress).catch(console.error)
+      return updated
+    }))
+  }, [user])
 
   const setLastWatched = useCallback(async (courseId, videoId) => {
-    const courses = data.courses.map(c => {
+    setCourses(prev => prev.map(c => {
       if (c.id !== courseId) return c
-      return { ...c, progress: { ...c.progress, lastWatched: videoId } }
-    })
-    return persist({ ...data, courses })
-  }, [data, persist])
-
-  const handleSetupFile = useCallback(async () => {
-    const ok = await setupFileStorage()
-    if (ok) setNeedsSetup(false)
-    return ok
-  }, [])
-
-  const handleExport = useCallback(() => exportJSON(data), [data])
-
-  const handleImport = useCallback(async (file) => {
-    const imported = await importJSON(file)
-    return persist(imported)
-  }, [persist])
+      const updated = { ...c, progress: { ...c.progress, lastWatched: videoId } }
+      updateProgress(courseId, user.id, updated.progress).catch(console.error)
+      return updated
+    }))
+  }, [user])
 
   const getCourse = useCallback((id) => {
-    return data?.courses?.find(c => c.id === id) || null
-  }, [data])
+    return courses.find(c => c.id === id) || null
+  }, [courses])
 
   return (
     <AppContext.Provider value={{
-      data, isLoading, storageType, needsSetup,
-      addCourse, deleteCourse, markVideoWatched, setLastWatched,
-      getCourse,
-      handleSetupFile, handleExport, handleImport,
+      user, courses, isLoading,
+      signInWithGoogle, signOut,
+      addCourse, removeCourse, markVideoWatched, setLastWatched, getCourse,
     }}>
       {children}
     </AppContext.Provider>

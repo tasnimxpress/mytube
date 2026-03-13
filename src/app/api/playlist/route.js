@@ -1,136 +1,148 @@
-// Server-side API route — Supadata primary, Invidious fallback
+// Server-side — YouTube Data API v3 primary, Supadata fallback
 
-const SUPADATA_API_KEY = process.env.SUPADATA_API_KEY
-const SUPADATA_BASE = 'https://api.supadata.ai/v1'
+const YT_API_KEY = process.env.YOUTUBE_API_KEY
+const SUPADATA_KEY = process.env.SUPADATA_API_KEY
 
-// Invidious fallback instances
-const INVIDIOUS_INSTANCES = [
-  'https://invidious.snopyta.org',
-  'https://invidious.kavin.rocks',
-  'https://y.com.sb',
-  'https://invidious.nerdvpn.de',
-]
-
-function parseDuration(seconds) {
-  if (!seconds) return ''
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = seconds % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
+function parseDuration(iso) {
+  if (!iso) return ''
+  const match = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!match) return ''
+  const h = parseInt(match[1] || 0)
+  const m = parseInt(match[2] || 0)
+  const s = parseInt(match[3] || 0)
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  return `${m}:${String(s).padStart(2,'0')}`
 }
 
-function buildThumbnail(videoId) {
-  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+function getBestThumbnail(thumbnails) {
+  return thumbnails?.maxres?.url || thumbnails?.high?.url ||
+         thumbnails?.medium?.url || thumbnails?.default?.url || ''
 }
 
-// ── Supadata fetch ────────────────────────────────────────────────────────────
+// ── YouTube Data API v3 ───────────────────────────────────────────────────────
+async function fetchViaYouTube(playlistId) {
+  const videos = []
+  let pageToken = ''
+  let playlistTitle = ''
+  let channelTitle = ''
+
+  // Playlist info
+  const infoRes = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=${playlistId}&key=${YT_API_KEY}`
+  )
+  if (!infoRes.ok) throw new Error(`YouTube API error: ${infoRes.status}`)
+  const info = await infoRes.json()
+  if (!info.items?.length) throw new Error('Playlist not found or is private')
+  playlistTitle = info.items[0].snippet.title
+  channelTitle = info.items[0].snippet.channelTitle
+
+  // Fetch all pages
+  do {
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50&key=${YT_API_KEY}${pageToken ? `&pageToken=${pageToken}` : ''}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`YouTube playlist items error: ${res.status}`)
+    const data = await res.json()
+
+    const validItems = data.items.filter(
+      i => i.snippet.title !== 'Private video' && i.snippet.title !== 'Deleted video'
+    )
+    const videoIds = validItems.map(i => i.contentDetails.videoId)
+
+    if (videoIds.length) {
+      const detRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds.join(',')}&key=${YT_API_KEY}`
+      )
+      const detData = await detRes.json()
+      const detMap = {}
+      detData.items?.forEach(v => { detMap[v.id] = v })
+
+      validItems.forEach((item, idx) => {
+        const vid = item.contentDetails.videoId
+        const det = detMap[vid]
+        videos.push({
+          id: vid,
+          title: item.snippet.title,
+          thumbnail: getBestThumbnail(item.snippet.thumbnails),
+          duration: det ? parseDuration(det.contentDetails.duration) : '',
+          channelTitle: item.snippet.videoOwnerChannelTitle || channelTitle,
+          position: videos.length + idx,
+        })
+      })
+    }
+    pageToken = data.nextPageToken || ''
+  } while (pageToken)
+
+  return {
+    id: playlistId,
+    title: playlistTitle,
+    channelTitle,
+    thumbnail: videos[0]?.thumbnail || '',
+    videoCount: videos.length,
+    videos,
+  }
+}
+
+// ── Supadata fallback ─────────────────────────────────────────────────────────
 async function fetchViaSupadata(playlistId) {
-  // Call 1: playlist metadata
-  const metaRes = await fetch(`${SUPADATA_BASE}/youtube/playlist?id=${playlistId}`, {
-    headers: { 'x-api-key': SUPADATA_API_KEY, 'Accept': 'application/json' },
-  })
-  if (!metaRes.ok) throw new Error(`Supadata metadata failed: ${metaRes.status}`)
+  const metaRes = await fetch(
+    `https://api.supadata.ai/v1/youtube/playlist?id=${playlistId}`,
+    { headers: { 'x-api-key': SUPADATA_KEY } }
+  )
+  if (!metaRes.ok) throw new Error(`Supadata error: ${metaRes.status}`)
   const meta = await metaRes.json()
 
-  // Call 2: playlist video IDs
-  const videosRes = await fetch(`${SUPADATA_BASE}/youtube/playlist/videos?id=${playlistId}`, {
-    headers: { 'x-api-key': SUPADATA_API_KEY, 'Accept': 'application/json' },
-  })
-  if (!videosRes.ok) throw new Error(`Supadata videos failed: ${videosRes.status}`)
+  const videosRes = await fetch(
+    `https://api.supadata.ai/v1/youtube/playlist/videos?id=${playlistId}`,
+    { headers: { 'x-api-key': SUPADATA_KEY } }
+  )
+  if (!videosRes.ok) throw new Error(`Supadata videos error: ${videosRes.status}`)
   const videosData = await videosRes.json()
 
-  const videoIds = videosData?.items?.map(v => v.id) || videosData?.videoIds || []
-  if (!videoIds.length) throw new Error('No videos found in playlist')
-
-  const videos = videoIds.map((id, idx) => ({
-    id,
-    title: videosData?.items?.[idx]?.title || `Video ${idx + 1}`,
-    thumbnail: buildThumbnail(id),
-    duration: videosData?.items?.[idx]?.duration
-      ? parseDuration(videosData.items[idx].duration)
-      : '',
-    channelTitle: meta?.channel?.name || meta?.channelTitle || '',
+  const items = videosData?.items || []
+  const videos = items.map((v, idx) => ({
+    id: v.id,
+    title: v.title || `Video ${idx + 1}`,
+    thumbnail: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+    duration: v.duration ? `${Math.floor(v.duration/60)}:${String(v.duration%60).padStart(2,'0')}` : '',
+    channelTitle: meta?.channel?.name || '',
     position: idx,
   }))
 
   return {
     id: playlistId,
     title: meta?.title || 'Untitled Playlist',
-    channelTitle: meta?.channel?.name || meta?.channelTitle || '',
-    thumbnail: buildThumbnail(videoIds[0]),
+    channelTitle: meta?.channel?.name || '',
+    thumbnail: videos[0]?.thumbnail || '',
     videoCount: videos.length,
     videos,
   }
-}
-
-// ── Invidious fallback ────────────────────────────────────────────────────────
-async function fetchViaInvidious(playlistId) {
-  let lastError
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
-      const controller = new AbortController()
-      const timeout = setTimeout(() => controller.abort(), 8000)
-      const res = await fetch(
-        `${instance}/api/v1/playlists/${playlistId}?fields=title,author,videos`,
-        { signal: controller.signal }
-      )
-      clearTimeout(timeout)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      if (!data?.videos?.length) throw new Error('No videos')
-
-      const videos = data.videos.map((v, idx) => ({
-        id: v.videoId,
-        title: v.title,
-        thumbnail: buildThumbnail(v.videoId),
-        duration: parseDuration(v.lengthSeconds),
-        channelTitle: v.author || data.author,
-        position: idx,
-      }))
-
-      return {
-        id: playlistId,
-        title: data.title,
-        channelTitle: data.author,
-        thumbnail: buildThumbnail(videos[0]?.id),
-        videoCount: videos.length,
-        videos,
-      }
-    } catch (e) {
-      lastError = e
-      continue
-    }
-  }
-  throw new Error(`Invidious fallback failed: ${lastError?.message}`)
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const playlistId = searchParams.get('id')
+  if (!playlistId) return Response.json({ error: 'Missing playlist ID' }, { status: 400 })
 
-  if (!playlistId) {
-    return Response.json({ error: 'Missing playlist ID' }, { status: 400 })
+  // Try YouTube API first
+  if (YT_API_KEY) {
+    try {
+      const data = await fetchViaYouTube(playlistId)
+      return Response.json({ ...data, source: 'youtube' })
+    } catch (e) {
+      console.warn('YouTube API failed, trying Supadata:', e.message)
+    }
   }
 
-  // Try Supadata first
-  if (SUPADATA_API_KEY) {
+  // Supadata fallback
+  if (SUPADATA_KEY) {
     try {
       const data = await fetchViaSupadata(playlistId)
       return Response.json({ ...data, source: 'supadata' })
     } catch (e) {
-      console.warn('Supadata failed, trying Invidious:', e.message)
+      console.warn('Supadata failed:', e.message)
     }
   }
 
-  // Fallback to Invidious
-  try {
-    const data = await fetchViaInvidious(playlistId)
-    return Response.json({ ...data, source: 'invidious' })
-  } catch (e) {
-    return Response.json({
-      error: 'Failed to fetch playlist. Make sure it is public and try again.',
-    }, { status: 500 })
-  }
+  return Response.json({ error: 'Failed to fetch playlist. Make sure it is public.' }, { status: 500 })
 }

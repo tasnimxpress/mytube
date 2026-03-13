@@ -1,4 +1,4 @@
-// MyTube · FocusLearn — calls our own server-side API route (no CORS issues)
+// MyTube · FocusLearn — calls server-side API route
 
 export function parseYouTubeInput(input) {
   input = input.trim()

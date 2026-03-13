@@ -4,7 +4,7 @@ import { useApp } from '@/lib/context'
 
 export default function CourseCard({ course }) {
   const router = useRouter()
-  const { deleteCourse } = useApp()
+  const { removeCourse: removeCourse } = useApp()
   const pct = course.progress?.percentage || 0
   const watched = course.progress?.watchedVideos?.length || 0
 
@@ -112,7 +112,7 @@ export default function CourseCard({ course }) {
       <button
         onClick={e => {
           e.stopPropagation()
-          if (confirm(`Delete "${course.title}"?`)) deleteCourse(course.id)
+          if (confirm(`Delete "${course.title}"?`)) removeCourse(course.id)
         }}
         style={{
           position: 'absolute', top: 10, left: 10,
