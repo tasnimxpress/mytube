@@ -1,10 +1,7 @@
-# 🎯 MyTube · FocusLearn
-
-**Watch YouTube playlists like a focused course. No recommendations. No distractions.**
-
+# MyTube · FocusLearn
 ---
 
-MyTube turns any public YouTube playlist into a clean, Udemy-style learning experience. Paste a URL — no API key, no account, no setup. Just learning.
+MyTube turns any public YouTube playlist into a clean, Udemy-style learning experience. 
 
 ## Features
 
@@ -18,23 +15,4 @@ MyTube turns any public YouTube playlist into a clean, Udemy-style learning expe
 
 Next.js · Tailwind CSS · Piped API · File System Access API · Vercel
 
-## Quick Start
-
-```bash
-git clone https://github.com/yourusername/mytube-focuslearn
-cd mytube-focuslearn
-npm install
-npm run dev
-```
-
-No API keys. No environment variables. Just run and go.
-
-## Deploy
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
-
-One click. Free. Nothing to configure.
-
 ---
-
-*Built for people who want to learn from free YouTube content without getting lost in the algorithm.*
