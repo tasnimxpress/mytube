@@ -1,6 +1,6 @@
 'use client'
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
-import { supabase, signInWithGoogle, signOut } from './supabase'
+import { supabase, signInWithGoogle, signUpWithGoogle, signOut } from './supabase'
 import { loadCourses, saveCourse, deleteCourse, updateProgress, rowToCourse } from './storage'
 
 const AppContext = createContext(null)
@@ -83,7 +83,7 @@ export function AppProvider({ children }) {
   return (
     <AppContext.Provider value={{
       user, courses, isLoading,
-      signInWithGoogle, signOut,
+      signInWithGoogle, signUpWithGoogle, signOut,
       addCourse, removeCourse, markVideoWatched, setLastWatched, getCourse,
     }}>
       {children}

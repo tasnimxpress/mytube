@@ -88,7 +88,7 @@ function CoursePlayer({ courseId }) {
     : ''
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       {/* Top navbar */}
       <header style={{
         height: 56, background: 'var(--bg-sidebar)',
@@ -359,7 +359,7 @@ function VideoList({ videos, activeVideoId, watched, onSelect, onToggle }) {
             >
               {isWatched && (
                 <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
-                  <path d="M1 4L4 7.5L10 1" stroke="#0e0f11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M1 4L4 7.5L10 1" stroke="#0e0f11" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               )}
             </div>
