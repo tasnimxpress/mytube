@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-/* rest of your CSS unchanged */
 /* ── Tailwind v4 theme tokens ─────────────────────────────────────────────── */
 @theme {
   --font-display: 'DM Serif Display', serif;
