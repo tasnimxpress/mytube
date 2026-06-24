@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useApp } from '@/lib/context'
-import { parseYouTubeInput, fetchPlaylistData, generateCourseId } from '@/lib/youtube'
+import { parseYouTubeInput, fetchPlaylistData, fetchVideoData, generateCourseId } from '@/lib/youtube'
 import { addLocalCourse } from '@/lib/localCourse'
 
 export default function AddCourseModal({ onClose }) {
@@ -12,27 +12,30 @@ export default function AddCourseModal({ onClose }) {
   const [mode, setMode] = useState('youtube') // youtube | local
 
   async function handleAddYouTube() {
-    if (!url.trim()) return setError('Please enter a YouTube playlist URL')
+    if (!url.trim()) return setError('Please enter a YouTube playlist or video URL')
 
     const parsed = parseYouTubeInput(url)
-    if (!parsed || parsed.type !== 'playlist') {
-      return setError('Please enter a valid YouTube playlist URL (must contain a playlist, not just a single video)')
+    if (!parsed) {
+      return setError('Please enter a valid YouTube playlist or video URL')
     }
 
     setStep('fetching')
     setError('')
 
     try {
-      const playlist = await fetchPlaylistData(parsed.id)
+      const data = parsed.type === 'video'
+        ? await fetchVideoData(parsed.id)
+        : await fetchPlaylistData(parsed.id)
       const course = {
         id: generateCourseId(),
         type: 'youtube',
-        playlistId: parsed.id,
-        title: playlist.title,
-        channelTitle: playlist.channelTitle,
-        thumbnail: playlist.thumbnail,
-        videoCount: playlist.videoCount,
-        videos: playlist.videos,
+        playlistId: parsed.type === 'playlist' ? parsed.id : null,
+        videoId: parsed.type === 'video' ? parsed.id : null,
+        title: data.title,
+        channelTitle: data.channelTitle,
+        thumbnail: data.thumbnail,
+        videoCount: data.videoCount,
+        videos: data.videos,
         addedAt: new Date().toISOString(),
         progress: {
           watchedVideos: [],
@@ -44,7 +47,7 @@ export default function AddCourseModal({ onClose }) {
       onClose()
     } catch (e) {
       setStep('input')
-      setError(e.message || 'Failed to fetch playlist. Make sure the playlist is public.')
+      setError(e.message || 'Failed to fetch. Make sure the playlist or video is public.')
     }
   }
 
@@ -105,7 +108,7 @@ export default function AddCourseModal({ onClose }) {
           border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden',
         }}>
           {[
-            { key: 'youtube', label: '▶  YouTube Playlist' },
+            { key: 'youtube', label: '▶  YouTube' },
             { key: 'local', label: '📁  Local Folder' },
           ].map(tab => (
             <button
@@ -129,16 +132,16 @@ export default function AddCourseModal({ onClose }) {
         {mode === 'youtube' && (
           <>
             <p style={{ color: 'var(--text-secondary)', fontSize: 14, marginBottom: 20 }}>
-              Paste any public YouTube playlist URL.
+              Paste any public YouTube playlist or video URL.
             </p>
             <label style={{ display: 'block', marginBottom: 16 }}>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', marginBottom: 6 }}>
-                YouTube Playlist URL
+                YouTube Playlist or Video URL
               </span>
               <input
                 value={url}
                 onChange={e => { setUrl(e.target.value); setError('') }}
-                placeholder="https://youtube.com/playlist?list=..."
+                placeholder="https://youtube.com/watch?v=... or playlist?list=..."
                 onKeyDown={e => e.key === 'Enter' && handleAddYouTube()}
                 autoFocus
                 style={{
@@ -157,8 +160,9 @@ export default function AddCourseModal({ onClose }) {
               borderRadius: 8, padding: '10px 14px', marginBottom: 20,
             }}>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                💡 On YouTube, open any playlist → copy the URL from your browser address bar.
-                Make sure the playlist is set to <strong style={{ color: 'var(--text-secondary)' }}>Public</strong>.
+                💡 Copy the URL from your browser address bar — a playlist becomes a multi-video
+                course, a single video becomes a one-video course. Make sure it is set to{' '}
+                <strong style={{ color: 'var(--text-secondary)' }}>Public</strong>.
               </p>
             </div>
           </>

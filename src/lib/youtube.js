@@ -3,15 +3,25 @@
 export function parseYouTubeInput(input) {
   input = input.trim()
 
-  // First: try to extract a list= param from any URL shape
+  // Playlist takes precedence: a watch URL can contain both v= and list=,
+  // and in that case the user almost certainly wants the whole playlist.
   const listMatch = input.match(/[?&]list=([a-zA-Z0-9_-]+)/)
   if (listMatch) return { type: 'playlist', id: listMatch[1] }
 
-  // FIX: The old regex only accepted IDs starting with PL/UU/FL/RD/OL,
-  // which excluded community playlists, mix lists, and other valid formats.
-  // Now we accept any bare string that looks like a valid YouTube ID
-  // (alphanumeric + hyphens/underscores, 10–64 chars) so users can paste
-  // a raw ID regardless of prefix. The server validates it further.
+  // Single video: watch?v=, youtu.be/<id>, /shorts/<id>, /embed/<id>.
+  // YouTube video IDs are exactly 11 chars.
+  const videoMatch =
+    input.match(/[?&]v=([a-zA-Z0-9_-]{11})/) ||
+    input.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/) ||
+    input.match(/\/shorts\/([a-zA-Z0-9_-]{11})/) ||
+    input.match(/\/embed\/([a-zA-Z0-9_-]{11})/)
+  if (videoMatch) return { type: 'video', id: videoMatch[1] }
+
+  // Bare 11-char ID → single video.
+  if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return { type: 'video', id: input }
+
+  // Other bare IDs (PL/UU/FL/RD/OL prefixes, community/mix lists, etc.)
+  // are playlists. The server validates further.
   if (/^[a-zA-Z0-9_-]{10,64}$/.test(input)) {
     return { type: 'playlist', id: input }
   }
@@ -23,6 +33,13 @@ export async function fetchPlaylistData(playlistId) {
   const res = await fetch(`/api/playlist?id=${encodeURIComponent(playlistId)}`)
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Failed to fetch playlist')
+  return data
+}
+
+export async function fetchVideoData(videoId) {
+  const res = await fetch(`/api/playlist?videoId=${encodeURIComponent(videoId)}`)
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Failed to fetch video')
   return data
 }
 

@@ -5,9 +5,14 @@ const YT_API_KEY = process.env.YOUTUBE_API_KEY
 const SUPADATA_KEY = process.env.SUPADATA_API_KEY
 
 const PLAYLIST_ID_RE = /^[a-zA-Z0-9_-]{10,64}$/
+const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/
 
 function isValidPlaylistId(id) {
   return PLAYLIST_ID_RE.test(id)
+}
+
+function isValidVideoId(id) {
+  return VIDEO_ID_RE.test(id)
 }
 
 function parseDuration(iso) {
@@ -150,6 +155,65 @@ async function fetchViaSupadata(playlistId) {
   }
 }
 
+// Wraps a single video in the same shape as a playlist (a one-video course)
+// so the rest of the app can treat it identically.
+async function fetchVideoViaYouTube(videoId) {
+  const res = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoId}&key=${YT_API_KEY}`
+  )
+  if (!res.ok) throw new Error('Failed to fetch video')
+  const data = await res.json()
+  if (!data.items?.length) throw new Error('Video not found or is private')
+
+  const v = data.items[0]
+  const video = {
+    id: v.id,
+    title: v.snippet.title,
+    thumbnail: getBestThumbnail(v.snippet.thumbnails),
+    duration: parseDuration(v.contentDetails.duration),
+    description: v.snippet.description || '',
+    channelTitle: v.snippet.channelTitle,
+    position: 0,
+  }
+
+  return {
+    id: videoId,
+    title: video.title,
+    channelTitle: video.channelTitle,
+    thumbnail: video.thumbnail,
+    videoCount: 1,
+    videos: [video],
+  }
+}
+
+async function fetchVideoViaSupadata(videoId) {
+  const res = await fetch(
+    `https://api.supadata.ai/v1/youtube/video?id=${videoId}`,
+    { headers: { 'x-api-key': SUPADATA_KEY } }
+  )
+  if (!res.ok) throw new Error('Failed to fetch video')
+  const v = await res.json()
+
+  const video = {
+    id: videoId,
+    title: v?.title || 'Untitled Video',
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    duration: v?.duration ? `${Math.floor(v.duration / 60)}:${String(v.duration % 60).padStart(2, '0')}` : '',
+    description: v?.description || '',
+    channelTitle: v?.channel?.name || '',
+    position: 0,
+  }
+
+  return {
+    id: videoId,
+    title: video.title,
+    channelTitle: video.channelTitle,
+    thumbnail: video.thumbnail,
+    videoCount: 1,
+    videos: [video],
+  }
+}
+
 export async function GET(request) {
   const cookieStore = await cookies()
   const supabase = createServerClient(
@@ -178,6 +242,34 @@ export async function GET(request) {
 
   const { searchParams } = new URL(request.url)
   const playlistId = searchParams.get('id')
+  const videoId = searchParams.get('videoId')
+
+  // Single-video import
+  if (videoId) {
+    if (!isValidVideoId(videoId)) {
+      return Response.json({ error: 'Invalid video ID format' }, { status: 400 })
+    }
+
+    if (YT_API_KEY) {
+      try {
+        const data = await fetchVideoViaYouTube(videoId)
+        return Response.json({ ...data, source: 'youtube' })
+      } catch (e) {
+        console.warn('YouTube API failed, trying Supadata:', e.message)
+      }
+    }
+
+    if (SUPADATA_KEY) {
+      try {
+        const data = await fetchVideoViaSupadata(videoId)
+        return Response.json({ ...data, source: 'supadata' })
+      } catch (e) {
+        console.warn('Supadata failed:', e.message)
+      }
+    }
+
+    return Response.json({ error: 'Failed to fetch video. Make sure it is public.' }, { status: 500 })
+  }
 
   if (!playlistId) {
     return Response.json({ error: 'Missing playlist ID' }, { status: 400 })
