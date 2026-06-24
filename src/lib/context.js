@@ -17,6 +17,10 @@ export function AppProvider({ children }) {
       setUser(session?.user || null)
       if (session?.user) fetchCourses()
       else setIsLoading(false)
+    }).catch((e) => {
+      // Guard against a hung spinner if getSession() ever rejects.
+      console.error('Failed to get session:', e)
+      setIsLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {

@@ -1,16 +1,14 @@
-import { createClient } from '@supabase/supabase-js'
+import { createBrowserClient } from '@supabase/ssr'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    flowType: 'pkce',
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  }
-})
+// Cookie-based browser client (via @supabase/ssr). This stores the session and
+// the PKCE code-verifier in cookies, so the server-side middleware and
+// /auth/callback route can read them and complete exchangeCodeForSession().
+// (Previously this used createClient(), which kept them in localStorage where
+// the server could not see them — the cause of the failed login / auth_failed.)
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey)
 
 async function googleOAuth() {
   const { error } = await supabase.auth.signInWithOAuth({
