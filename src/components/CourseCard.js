@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useApp } from '@/lib/context'
 
-export default function CourseCard({ course }) {
+export default function CourseCard({ course, noteCount = 0 }) {
   const router = useRouter()
   const { removeCourse } = useApp()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -94,6 +94,15 @@ export default function CourseCard({ course }) {
         <div className="progress-bar" style={{ marginTop: 8 }}>
           <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
         </div>
+        {noteCount > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            marginTop: 10, fontSize: 12, color: 'var(--accent)',
+          }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)' }} />
+            {noteCount} {noteCount === 1 ? 'note' : 'notes'}
+          </div>
+        )}
       </div>
 
       {/* Delete button — inline confirmation, no confirm() */}

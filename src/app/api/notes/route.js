@@ -24,27 +24,46 @@ async function getSupabaseUser() {
   return { supabase, user, error }
 }
 
-// GET /api/notes?courseId=xxx — all notes for one course, for the current user
+// GET /api/notes?courseId=xxx — all notes for one course (many per video).
+// GET /api/notes (no courseId) — per-course note counts: [{ course_id, count }].
 export async function GET(request) {
   const { supabase, user, error } = await getSupabaseUser()
   if (error || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const courseId = searchParams.get('courseId')
-  if (!courseId) return Response.json({ error: 'Missing courseId' }, { status: 400 })
+
+  if (!courseId) {
+    // Count only non-empty notes, grouped per course.
+    const { data, error: dbError } = await supabase
+      .from('notes')
+      .select('course_id')
+      .eq('user_id', user.id)
+      .neq('body', '')
+
+    if (dbError) return Response.json({ error: 'Failed to load note counts' }, { status: 500 })
+    const counts = {}
+    for (const row of data || []) {
+      counts[row.course_id] = (counts[row.course_id] || 0) + 1
+    }
+    return Response.json(
+      Object.entries(counts).map(([course_id, count]) => ({ course_id, count }))
+    )
+  }
 
   const { data, error: dbError } = await supabase
     .from('notes')
-    .select('video_id, body, updated_at')
+    .select('id, video_id, body, created_at, updated_at')
     .eq('user_id', user.id)
     .eq('course_id', courseId)
+    .order('created_at', { ascending: true })
 
   if (dbError) return Response.json({ error: 'Failed to load notes' }, { status: 500 })
   return Response.json(data || [])
 }
 
-// PUT /api/notes — upsert the note for a single (course, video)
-export async function PUT(request) {
+// POST /api/notes — create a new note. Returns { id, created_at, updated_at }.
+export async function POST(request) {
   const { supabase, user, error } = await getSupabaseUser()
   if (error || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -53,16 +72,54 @@ export async function PUT(request) {
     return Response.json({ error: 'Missing courseId or videoId' }, { status: 400 })
   }
 
-  const { error: dbError } = await supabase
+  const { data, error: dbError } = await supabase
     .from('notes')
-    .upsert({
+    .insert({
       user_id: user.id,
       course_id: courseId,
       video_id: videoId,
       body: typeof body === 'string' ? body : '',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,course_id,video_id' })
+    })
+    .select('id, created_at, updated_at')
+    .single()
 
-  if (dbError) return Response.json({ error: 'Failed to save note' }, { status: 500 })
+  if (dbError) return Response.json({ error: 'Failed to create note' }, { status: 500 })
+  return Response.json(data)
+}
+
+// PATCH /api/notes — update one note's body by id.
+export async function PATCH(request) {
+  const { supabase, user, error } = await getSupabaseUser()
+  if (error || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id, body } = await request.json()
+  if (!id) return Response.json({ error: 'Missing note id' }, { status: 400 })
+
+  const { error: dbError } = await supabase
+    .from('notes')
+    .update({ body: typeof body === 'string' ? body : '', updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  if (dbError) return Response.json({ error: 'Failed to update note' }, { status: 500 })
+  return Response.json({ ok: true })
+}
+
+// DELETE /api/notes?id=xxx — delete one note by id.
+export async function DELETE(request) {
+  const { supabase, user, error } = await getSupabaseUser()
+  if (error || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get('id')
+  if (!id) return Response.json({ error: 'Missing note id' }, { status: 400 })
+
+  const { error: dbError } = await supabase
+    .from('notes')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id)
+
+  if (dbError) return Response.json({ error: 'Failed to delete note' }, { status: 500 })
   return Response.json({ ok: true })
 }

@@ -5,6 +5,8 @@
 --
 -- Run this in the Supabase SQL editor.
 
+-- A video can have many notes, so each note is its own row (no unique
+-- constraint on user/course/video). The uuid `id` is the only key.
 create table if not exists public.notes (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users (id) on delete cascade,
@@ -12,8 +14,7 @@ create table if not exists public.notes (
   video_id    text not null,
   body        text not null default '',
   created_at  timestamptz not null default now(),
-  updated_at  timestamptz not null default now(),
-  unique (user_id, course_id, video_id)
+  updated_at  timestamptz not null default now()
 );
 
 create index if not exists notes_user_course_idx

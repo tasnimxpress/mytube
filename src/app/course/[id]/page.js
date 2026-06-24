@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useApp } from '@/lib/context'
 import { requestFolderAccess, saveFolderHandle, getFileUrl, getFileText, getFileIcon } from '@/lib/localCourse'
-import { loadNotes, saveNote } from '@/lib/notes'
+import { loadNotes, createNote, updateNote, deleteNote } from '@/lib/notes'
 
 const NAV_H = 56
 const CTRL_H = 49
@@ -39,14 +39,11 @@ function CoursePlayer({ courseId }) {
   const [descOpen, setDescOpen] = useState(false)
   const [embedBlocked, setEmbedBlocked] = useState(false)
 
-  // Notes: one note per video. { [videoId]: body } loaded once per course,
-  // autosaved (debounced) as the user types. sidebarView toggles the sidebar
-  // between the content list and the notes editor so notes can be written
-  // while the video keeps playing.
-  const [notes, setNotes] = useState({})
+  // Notes: a flat list of note rows for this course (many per video). Loaded
+  // once per course. sidebarView toggles the sidebar between the content list
+  // and the notes editor so notes can be written while the video keeps playing.
+  const [allNotes, setAllNotes] = useState([])
   const [sidebarView, setSidebarView] = useState('content')
-  const [noteStatus, setNoteStatus] = useState('idle') // idle | saving | saved | error
-  const noteSaveTimer = useRef(null)
 
   // Local course state
   const [folderHandle, setFolderHandle] = useState(null)
@@ -108,20 +105,10 @@ function CoursePlayer({ courseId }) {
     if (isLoading || !course) return
     let cancelled = false
     loadNotes(courseId)
-      .then(rows => {
-        if (cancelled) return
-        const map = {}
-        rows.forEach(r => { map[r.video_id] = r.body })
-        setNotes(map)
-      })
+      .then(rows => { if (!cancelled) setAllNotes(rows) })
       .catch(e => console.error('Failed to load notes:', e))
     return () => { cancelled = true }
   }, [isLoading, courseId, course?.id])
-
-  // Flush any pending note save when leaving the page.
-  useEffect(() => {
-    return () => { if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current) }
-  }, [])
 
   // ── Load local file when active item changes ────────────────────────────────
   useEffect(() => {
@@ -235,24 +222,33 @@ function CoursePlayer({ courseId }) {
 
   // The videoId is captured in the closure, so a debounced save still targets
   // the right video even if the user switches videos before it fires.
-  function handleNoteChange(videoId, value) {
-    setNotes(prev => ({ ...prev, [videoId]: value }))
-    setNoteStatus('saving')
-    if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current)
-    noteSaveTimer.current = setTimeout(() => {
-      saveNote(courseId, videoId, value)
-        .then(() => setNoteStatus('saved'))
-        .catch(() => setNoteStatus('error'))
-    }, 800)
+  // Create a new note for a video. Returns true on success.
+  async function handleAddNote(videoId, body) {
+    try {
+      const created = await createNote(courseId, videoId, body)
+      setAllNotes(prev => [...prev, {
+        id: created.id, video_id: videoId, body,
+        created_at: created.created_at, updated_at: created.updated_at,
+      }])
+      return true
+    } catch (e) {
+      console.error('Failed to create note:', e)
+      return false
+    }
   }
 
-  // Save immediately (e.g. on blur) instead of waiting out the debounce.
-  function flushNote(videoId) {
-    if (noteSaveTimer.current) { clearTimeout(noteSaveTimer.current); noteSaveTimer.current = null }
-    setNoteStatus('saving')
-    saveNote(courseId, videoId, notes[videoId] ?? '')
-      .then(() => setNoteStatus('saved'))
-      .catch(() => setNoteStatus('error'))
+  // Update note body in local state (the actual debounced save to the server is
+  // owned by the NoteCard). Keeps indicators/counts/previews live as you type.
+  function handleUpdateNote(id, body) {
+    setAllNotes(prev => prev.map(n =>
+      n.id === id ? { ...n, body, updated_at: new Date().toISOString() } : n
+    ))
+  }
+
+  async function handleRemoveNote(id) {
+    setAllNotes(prev => prev.filter(n => n.id !== id)) // optimistic
+    try { await deleteNote(id) }
+    catch (e) { console.error('Failed to delete note:', e) }
   }
 
   if (!course) {
@@ -274,6 +270,19 @@ function CoursePlayer({ courseId }) {
   const pct = course.progress?.percentage || 0
   const watched = course.progress?.watchedVideos || []
   const isLocal = course.type === 'local'
+
+  // Ids of items that currently have at least one non-empty note (for list
+  // indicators and the "All notes" overview).
+  const notedIds = new Set(
+    allNotes.filter(n => (n.body || '').trim()).map(n => n.video_id)
+  )
+
+  // Jump straight to a video's note from the overview list.
+  function openNoteFor(itemId) {
+    handleItemSelect(itemId)
+    setSidebarOpen(true)
+    setSidebarView('notes')
+  }
 
   const embedUrl = !isLocal && activeItemId
     ? `https://www.youtube.com/embed/${activeItemId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&color=white`
@@ -678,6 +687,60 @@ function CoursePlayer({ courseId }) {
                   <div className="progress-bar" style={{ height: 8, borderRadius: 4 }}>
                     <div className="progress-bar-fill" style={{ width: `${pct}%`, borderRadius: 4 }} />
                   </div>
+
+                  {/* All notes for this course */}
+                  {(() => {
+                    const visibleNotes = allNotes.filter(n => (n.body || '').trim())
+                    return (
+                      <div style={{ marginTop: 28 }}>
+                        <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 16, marginBottom: 12 }}>
+                          Your notes{' '}
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 13 }}>
+                            ({visibleNotes.length})
+                          </span>
+                        </h4>
+                        {visibleNotes.length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>
+                            No notes yet. Open a video and use the Notes tab in the sidebar to add one.
+                          </p>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {visibleNotes.map(n => {
+                              const it = allItems.find(i => i.id === n.video_id)
+                              return (
+                                <button
+                                  key={n.id}
+                                  onClick={() => openNoteFor(n.video_id)}
+                                  style={{
+                                    textAlign: 'left', width: '100%',
+                                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                                    borderRadius: 10, padding: '12px 14px', cursor: 'pointer',
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                                      {it ? (it.name || it.title) : 'Note'}
+                                    </span>
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+                                      {formatNoteTime(n.updated_at)}
+                                    </span>
+                                  </div>
+                                  <p style={{
+                                    fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5,
+                                    whiteSpace: 'pre-wrap',
+                                    display: '-webkit-box', WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                                  }}>
+                                    {n.body}
+                                  </p>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
               {tab === 'content' && (
@@ -686,6 +749,7 @@ function CoursePlayer({ courseId }) {
                     course={course}
                     activeItemId={activeItemId}
                     watched={watched}
+                    notedIds={notedIds}
                     onSelect={handleItemSelect}
                     onToggle={handleToggleWatched}
                   />
@@ -736,6 +800,7 @@ function CoursePlayer({ courseId }) {
                   course={course}
                   activeItemId={activeItemId}
                   watched={watched}
+                  notedIds={notedIds}
                   onSelect={handleItemSelect}
                   onToggle={handleToggleWatched}
                 />
@@ -745,10 +810,11 @@ function CoursePlayer({ courseId }) {
                 activeItem={activeItem}
                 activeItemId={activeItemId}
                 isLocal={isLocal}
-                value={notes[activeItemId] ?? ''}
-                status={noteStatus}
-                onChange={handleNoteChange}
-                onBlur={flushNote}
+                allItems={allItems}
+                allNotes={allNotes}
+                onAdd={handleAddNote}
+                onUpdate={handleUpdateNote}
+                onDelete={handleRemoveNote}
               />
             )}
           </aside>
@@ -760,7 +826,7 @@ function CoursePlayer({ courseId }) {
 }
 
 // ── Item list ─────────────────────────────────────────────────────────────────
-function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
+function ItemList({ course, activeItemId, watched, notedIds, onSelect, onToggle }) {
   const isLocal = course.type === 'local'
 
   if (isLocal && course.sections?.length) {
@@ -787,6 +853,7 @@ function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
                 idx={idx}
                 isActive={item.id === activeItemId}
                 isWatched={watched.includes(item.id)}
+                hasNote={notedIds?.has(item.id)}
                 isLocal={true}
                 onSelect={onSelect}
                 onToggle={onToggle}
@@ -807,6 +874,7 @@ function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
           idx={idx}
           isActive={video.id === activeItemId}
           isWatched={watched.includes(video.id)}
+          hasNote={notedIds?.has(video.id)}
           isLocal={false}
           onSelect={onSelect}
           onToggle={onToggle}
@@ -816,7 +884,7 @@ function ItemList({ course, activeItemId, watched, onSelect, onToggle }) {
   )
 }
 
-function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }) {
+function ItemRow({ item, idx, isActive, isWatched, hasNote, isLocal, onSelect, onToggle }) {
   return (
     <div
       onClick={() => onSelect(item.id)}
@@ -879,61 +947,286 @@ function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }
         {isLocal && (
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{item.fileType}</p>
         )}
+        {hasNote && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            fontSize: 11, color: 'var(--accent)', marginTop: 4,
+          }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)' }} />
+            Note
+          </span>
+        )}
       </div>
     </div>
   )
 }
 
 // ── Notes panel (sidebar) ───────────────────────────────────────────────────
-function NotesPanel({ activeItem, activeItemId, isLocal, value, status, onChange, onBlur }) {
+function formatNoteTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ` +
+    `${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
+}
+
+function NotesPanel({
+  activeItem, activeItemId, isLocal, allItems, allNotes, onAdd, onUpdate, onDelete,
+}) {
+  const [draft, setDraft] = useState('')
+  const [adding, setAdding] = useState(false)
+  const [showAll, setShowAll] = useState(false)
+
   const title = isLocal ? activeItem?.name : activeItem?.title
+  const allVisible = allNotes.filter(n => (n.body || '').trim())
+  const titleOf = (vid) => {
+    const it = (allItems || []).find(i => i.id === vid)
+    return it ? (isLocal ? it.name : it.title) : 'Note'
+  }
+
+  async function submitDraft() {
+    if (!draft.trim() || !activeItemId || adding) return
+    setAdding(true)
+    const ok = await onAdd(activeItemId, draft)
+    setAdding(false)
+    if (ok) setDraft('')
+  }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-      <div style={{ padding: '12px 16px 8px', flexShrink: 0 }}>
-        <p style={{
-          fontSize: 11, color: 'var(--text-muted)',
-          textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
-        }}>
-          Notes for
-        </p>
-        <p style={{
-          fontSize: 13, color: 'var(--text-secondary)',
-          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}>
-          {title || 'this video'}
-        </p>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      {/* All notes in this course (collapsible) */}
+      <div style={{ flexShrink: 0 }}>
+        <button
+          onClick={() => setShowAll(o => !o)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'transparent', border: 'none', cursor: 'pointer',
+            color: 'var(--text-secondary)', fontSize: 13, padding: '12px 16px',
+            position: 'sticky', top: 0, zIndex: 1, backgroundColor: 'var(--bg-sidebar)',
+          }}
+        >
+          <span>All notes in this course{' '}
+            <span style={{ color: 'var(--text-muted)' }}>({allVisible.length})</span>
+          </span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{showAll ? '▾' : '▸'}</span>
+        </button>
+        {showAll && (
+          allVisible.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)', fontSize: 12, padding: '0 16px 12px' }}>
+              No notes yet. Add one below.
+            </p>
+          ) : (
+            <div style={{ padding: '0 12px 12px' }}>
+              {allVisible.map(n => (
+                <NoteItem
+                  key={n.id}
+                  note={n}
+                  title={titleOf(n.video_id)}
+                  isActive={n.video_id === activeItemId}
+                  onUpdate={onUpdate}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          )
+        )}
       </div>
 
-      <div style={{ flex: 1, padding: '0 16px 12px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* Composer for the active video */}
+      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
         {activeItemId ? (
-          <textarea
-            value={value}
-            onChange={e => onChange(activeItemId, e.target.value)}
-            onBlur={() => onBlur(activeItemId)}
-            placeholder="Write your notes for this video…"
-            style={{
-              flex: 1, width: '100%', resize: 'none',
-              background: 'var(--bg)', color: 'var(--text-primary)',
-              border: '1px solid var(--border)', borderRadius: 8,
-              padding: 12, fontSize: 14, lineHeight: 1.6,
-              fontFamily: 'inherit', outline: 'none',
-            }}
-          />
+          <>
+            <p style={{
+              fontSize: 11, color: 'var(--text-muted)',
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
+            }}>
+              New note for
+            </p>
+            <p style={{
+              fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              {title || 'this video'}
+            </p>
+            <textarea
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') submitDraft() }}
+              placeholder="Write a new note…"
+              rows={3}
+              style={{
+                width: '100%', resize: 'vertical', minHeight: 60,
+                background: 'var(--bg)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', borderRadius: 8,
+                padding: 10, fontSize: 14, lineHeight: 1.6,
+                fontFamily: 'inherit', outline: 'none',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+              <button
+                onClick={submitDraft}
+                disabled={!draft.trim() || adding}
+                style={{
+                  background: draft.trim() ? 'var(--accent)' : 'var(--border)',
+                  color: draft.trim() ? '#0e0f11' : 'var(--text-muted)',
+                  border: 'none', borderRadius: 7, padding: '7px 14px',
+                  fontSize: 13, fontWeight: 600,
+                  cursor: draft.trim() && !adding ? 'pointer' : 'default',
+                }}
+              >
+                {adding ? 'Adding…' : '+ Add note'}
+              </button>
+            </div>
+          </>
         ) : (
           <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Select a video to take notes.</p>
         )}
-        <div style={{
-          height: 18, marginTop: 6, fontSize: 12,
-          color: status === 'error' ? 'var(--danger)' : 'var(--text-muted)',
-        }}>
-          {status === 'saving' && 'Saving…'}
-          {status === 'saved' && 'Saved ✓'}
-          {status === 'error' && 'Could not save — will retry on next edit'}
-        </div>
       </div>
     </div>
   )
+}
+
+// A note in the "all notes" list: collapsed to title + time; click to expand
+// the body, where Edit (autosaving textarea) and Delete live.
+function NoteItem({ note, title, isActive, onUpdate, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [status, setStatus] = useState('idle') // idle | saving | saved | error
+  const [confirmDel, setConfirmDel] = useState(false)
+  const timer = useRef(null)
+  const pending = useRef(null)
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current)
+      if (pending.current != null) updateNote(note.id, pending.current).catch(() => {})
+    }
+  }, [note.id])
+
+  function change(value) {
+    onUpdate(note.id, value) // lift to parent so previews/counts stay live
+    setStatus('saving')
+    pending.current = value
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = null
+      pending.current = null
+      updateNote(note.id, value).then(() => setStatus('saved')).catch(() => setStatus('error'))
+    }, 800)
+  }
+
+  function flush() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null }
+    if (pending.current == null) return
+    const v = pending.current
+    pending.current = null
+    setStatus('saving')
+    updateNote(note.id, v).then(() => setStatus('saved')).catch(() => setStatus('error'))
+  }
+
+  const meta = status === 'saving' ? 'Saving…'
+    : status === 'saved' ? 'Saved ✓'
+    : status === 'error' ? 'Could not save'
+    : formatNoteTime(note.updated_at)
+
+  return (
+    <div style={{
+      marginBottom: 6, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
+      background: isActive ? 'var(--accent-dim)' : 'transparent',
+    }}>
+      <button
+        onClick={() => setOpen(o => { if (o) setEditing(false); return !o })}
+        style={{
+          display: 'block', textAlign: 'left', width: '100%',
+          background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 10px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{
+            fontSize: 12, fontWeight: 600,
+            color: isActive ? 'var(--accent)' : 'var(--text-primary)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {title}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0 }}>
+            {open ? '▾' : '▸'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{formatNoteTime(note.updated_at)}</span>
+        </div>
+        {!open && (
+          <p style={{
+            margin: '4px 0 0', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>
+            {note.body}
+          </p>
+        )}
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 10px 10px' }}>
+          {editing ? (
+            <textarea
+              value={note.body}
+              autoFocus
+              onChange={e => change(e.target.value)}
+              onBlur={flush}
+              placeholder="Write a note…"
+              rows={3}
+              style={{
+                width: '100%', resize: 'vertical', minHeight: 60,
+                background: 'var(--bg)', color: 'var(--text-primary)',
+                border: '1px solid var(--border)', borderRadius: 6,
+                padding: 10, fontSize: 14, lineHeight: 1.6,
+                fontFamily: 'inherit', outline: 'none',
+              }}
+            />
+          ) : (
+            <p style={{
+              margin: 0, fontSize: 13, lineHeight: 1.6,
+              color: note.body ? 'var(--text-primary)' : 'var(--text-muted)',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            }}>
+              {note.body || 'Empty note'}
+            </p>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+            <span style={{ fontSize: 11, color: status === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>
+              {meta}
+            </span>
+            <span style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              {editing ? (
+                <button onClick={() => { flush(); setEditing(false) }} style={{ ...noteLinkBtn, color: 'var(--accent)' }}>
+                  Done
+                </button>
+              ) : (
+                <button onClick={() => setEditing(true)} style={noteLinkBtn}>Edit</button>
+              )}
+              {!confirmDel ? (
+                <button onClick={() => setConfirmDel(true)} style={noteLinkBtn}>Delete</button>
+              ) : (
+                <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => onDelete(note.id)} style={{ ...noteLinkBtn, color: 'var(--danger)' }}>
+                    Confirm
+                  </button>
+                  <button onClick={() => setConfirmDel(false)} style={noteLinkBtn}>Cancel</button>
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const noteLinkBtn = {
+  background: 'transparent', border: 'none', cursor: 'pointer',
+  color: 'var(--text-muted)', fontSize: 12, padding: 0,
 }
 
 function InfoTile({ label, value, accent }) {

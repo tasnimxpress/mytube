@@ -1,6 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useApp } from '@/lib/context'
+import { loadNoteCounts } from '@/lib/notes'
 import CourseCard from '@/components/CourseCard'
 import AddCourseModal from '@/components/AddCourseModal'
 
@@ -14,6 +15,22 @@ const Logo = ({ size = 80 }) => (
 export default function HomePage() {
   const { user, courses, isLoading, signInWithGoogle, signOut } = useApp()
   const [showModal, setShowModal] = useState(false)
+  const [noteCounts, setNoteCounts] = useState({})
+
+  // Per-course note counts to badge the course cards.
+  useEffect(() => {
+    if (!user) { setNoteCounts({}); return }
+    let cancelled = false
+    loadNoteCounts()
+      .then(rows => {
+        if (cancelled) return
+        const map = {}
+        rows.forEach(r => { map[r.course_id] = r.count })
+        setNoteCounts(map)
+      })
+      .catch(e => console.error('Failed to load note counts:', e))
+    return () => { cancelled = true }
+  }, [user])
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -197,7 +214,7 @@ export default function HomePage() {
               {courses.map((course, i) => (
                 <div key={course.id} className="fade-up"
                   style={{ animationDelay: `${i * 60}ms`, opacity: 0 }}>
-                  <CourseCard course={course} />
+                  <CourseCard course={course} noteCount={noteCounts[course.id] || 0} />
                 </div>
               ))}
             </div>
