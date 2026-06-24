@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useApp } from '@/lib/context'
 import { requestFolderAccess, saveFolderHandle, getFileUrl, getFileText, getFileIcon } from '@/lib/localCourse'
+import { loadNotes, saveNote } from '@/lib/notes'
 
 const NAV_H = 56
 const CTRL_H = 49
@@ -37,6 +38,15 @@ function CoursePlayer({ courseId }) {
   const [tab, setTab] = useState('content')
   const [descOpen, setDescOpen] = useState(false)
   const [embedBlocked, setEmbedBlocked] = useState(false)
+
+  // Notes: one note per video. { [videoId]: body } loaded once per course,
+  // autosaved (debounced) as the user types. sidebarView toggles the sidebar
+  // between the content list and the notes editor so notes can be written
+  // while the video keeps playing.
+  const [notes, setNotes] = useState({})
+  const [sidebarView, setSidebarView] = useState('content')
+  const [noteStatus, setNoteStatus] = useState('idle') // idle | saving | saved | error
+  const noteSaveTimer = useRef(null)
 
   // Local course state
   const [folderHandle, setFolderHandle] = useState(null)
@@ -92,6 +102,26 @@ function CoursePlayer({ courseId }) {
   useEffect(() => {
     setEmbedBlocked(false)
   }, [activeItemId])
+
+  // ── Load notes once the course is known ─────────────────────────────────────
+  useEffect(() => {
+    if (isLoading || !course) return
+    let cancelled = false
+    loadNotes(courseId)
+      .then(rows => {
+        if (cancelled) return
+        const map = {}
+        rows.forEach(r => { map[r.video_id] = r.body })
+        setNotes(map)
+      })
+      .catch(e => console.error('Failed to load notes:', e))
+    return () => { cancelled = true }
+  }, [isLoading, courseId, course?.id])
+
+  // Flush any pending note save when leaving the page.
+  useEffect(() => {
+    return () => { if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current) }
+  }, [])
 
   // ── Load local file when active item changes ────────────────────────────────
   useEffect(() => {
@@ -201,6 +231,28 @@ function CoursePlayer({ courseId }) {
     if (next) handleItemSelect(next.id)
     const c = getCourse(courseId)
     if (c) setCourse(c)
+  }
+
+  // The videoId is captured in the closure, so a debounced save still targets
+  // the right video even if the user switches videos before it fires.
+  function handleNoteChange(videoId, value) {
+    setNotes(prev => ({ ...prev, [videoId]: value }))
+    setNoteStatus('saving')
+    if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current)
+    noteSaveTimer.current = setTimeout(() => {
+      saveNote(courseId, videoId, value)
+        .then(() => setNoteStatus('saved'))
+        .catch(() => setNoteStatus('error'))
+    }, 800)
+  }
+
+  // Save immediately (e.g. on blur) instead of waiting out the debounce.
+  function flushNote(videoId) {
+    if (noteSaveTimer.current) { clearTimeout(noteSaveTimer.current); noteSaveTimer.current = null }
+    setNoteStatus('saving')
+    saveNote(courseId, videoId, notes[videoId] ?? '')
+      .then(() => setNoteStatus('saved'))
+      .catch(() => setNoteStatus('error'))
   }
 
   if (!course) {
@@ -659,25 +711,46 @@ function CoursePlayer({ courseId }) {
             overflow: 'hidden', height: '100%',
           }}>
             <div style={{
-              padding: '14px 16px', borderBottom: '1px solid var(--border)',
-              fontWeight: 600, fontSize: 14,
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '10px 12px', borderBottom: '1px solid var(--border)',
+              display: 'flex', gap: 6, alignItems: 'center',
               flexShrink: 0,
             }}>
-              <span>Course content</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 12, fontWeight: 400 }}>
-                {watched.length}/{course.videoCount}
-              </span>
+              <div style={{ display: 'flex', gap: 4, flex: 1 }}>
+                <button onClick={() => setSidebarView('content')} style={sidebarTab(sidebarView === 'content')}>
+                  Content
+                </button>
+                <button onClick={() => setSidebarView('notes')} style={sidebarTab(sidebarView === 'notes')}>
+                  Notes
+                </button>
+              </div>
+              {sidebarView === 'content' && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+                  {watched.length}/{course.videoCount}
+                </span>
+              )}
             </div>
-            <div style={{ overflowY: 'auto', flex: 1 }}>
-              <ItemList
-                course={course}
+
+            {sidebarView === 'content' ? (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                <ItemList
+                  course={course}
+                  activeItemId={activeItemId}
+                  watched={watched}
+                  onSelect={handleItemSelect}
+                  onToggle={handleToggleWatched}
+                />
+              </div>
+            ) : (
+              <NotesPanel
+                activeItem={activeItem}
                 activeItemId={activeItemId}
-                watched={watched}
-                onSelect={handleItemSelect}
-                onToggle={handleToggleWatched}
+                isLocal={isLocal}
+                value={notes[activeItemId] ?? ''}
+                status={noteStatus}
+                onChange={handleNoteChange}
+                onBlur={flushNote}
               />
-            </div>
+            )}
           </aside>
         )}
       </div>
@@ -811,6 +884,58 @@ function ItemRow({ item, idx, isActive, isWatched, isLocal, onSelect, onToggle }
   )
 }
 
+// ── Notes panel (sidebar) ───────────────────────────────────────────────────
+function NotesPanel({ activeItem, activeItemId, isLocal, value, status, onChange, onBlur }) {
+  const title = isLocal ? activeItem?.name : activeItem?.title
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div style={{ padding: '12px 16px 8px', flexShrink: 0 }}>
+        <p style={{
+          fontSize: 11, color: 'var(--text-muted)',
+          textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4,
+        }}>
+          Notes for
+        </p>
+        <p style={{
+          fontSize: 13, color: 'var(--text-secondary)',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {title || 'this video'}
+        </p>
+      </div>
+
+      <div style={{ flex: 1, padding: '0 16px 12px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {activeItemId ? (
+          <textarea
+            value={value}
+            onChange={e => onChange(activeItemId, e.target.value)}
+            onBlur={() => onBlur(activeItemId)}
+            placeholder="Write your notes for this video…"
+            style={{
+              flex: 1, width: '100%', resize: 'none',
+              background: 'var(--bg)', color: 'var(--text-primary)',
+              border: '1px solid var(--border)', borderRadius: 8,
+              padding: 12, fontSize: 14, lineHeight: 1.6,
+              fontFamily: 'inherit', outline: 'none',
+            }}
+          />
+        ) : (
+          <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Select a video to take notes.</p>
+        )}
+        <div style={{
+          height: 18, marginTop: 6, fontSize: 12,
+          color: status === 'error' ? 'var(--danger)' : 'var(--text-muted)',
+        }}>
+          {status === 'saving' && 'Saving…'}
+          {status === 'saved' && 'Saved ✓'}
+          {status === 'error' && 'Could not save — will retry on next edit'}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function InfoTile({ label, value, accent }) {
   return (
     <div style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', textAlign: 'center' }}>
@@ -826,6 +951,16 @@ const navBtn = {
   padding: '7px 14px', cursor: 'pointer', fontSize: 13,
   transition: 'all 0.15s',
 }
+
+const sidebarTab = (active) => ({
+  flex: 1,
+  background: active ? 'var(--accent-dim)' : 'transparent',
+  color: active ? 'var(--accent)' : 'var(--text-secondary)',
+  border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+  borderRadius: 7, padding: '7px 10px',
+  cursor: 'pointer', fontSize: 13, fontWeight: active ? 600 : 400,
+  transition: 'all 0.15s',
+})
 
 export default function CoursePage({ params }) {
   const { id } = use(params)

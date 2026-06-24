@@ -1,5 +1,7 @@
 const crypto = require('crypto')
 
+const isDev = process.env.NODE_ENV !== 'production'
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
@@ -23,7 +25,10 @@ const nextConfig = {
               // To remove it fully you would need to adopt a nonce-based CSP
               // with a custom middleware, which is a larger refactor. This is
               // the same posture as before — noted as a known limitation.
-              "script-src 'self' 'unsafe-inline'",
+              // 'unsafe-eval' is required ONLY in dev: Next.js Fast Refresh /
+              // webpack HMR evaluate the client bundle via eval(). It is omitted
+              // in production so the deployed CSP stays strict.
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://i.ytimg.com https://*.googleusercontent.com",

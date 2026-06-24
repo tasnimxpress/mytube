@@ -13,16 +13,12 @@ export function AppProvider({ children }) {
   const [saveError, setSaveError] = useState(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user || null)
-      if (session?.user) fetchCourses()
-      else setIsLoading(false)
-    }).catch((e) => {
-      // Guard against a hung spinner if getSession() ever rejects.
-      console.error('Failed to get session:', e)
-      setIsLoading(false)
-    })
-
+    // Rely solely on onAuthStateChange. It fires an INITIAL_SESSION event
+    // immediately on subscribe with the current (cookie-based) session, so a
+    // separate getSession() call is redundant — and getSession() in
+    // @supabase/ssr can deadlock on the navigator.locks auth lock, leaving its
+    // promise forever unresolved (neither .then nor .catch fires), which froze
+    // the app on the loading spinner.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null)
       if (session?.user) fetchCourses()
