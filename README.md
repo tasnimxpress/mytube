@@ -20,6 +20,7 @@ MyTube strips everything away. Paste a YouTube playlist, and it becomes a clean 
 - **Distraction-free player** — YouTube embedded with no sidebar, no recommendations, no comments
 - **Course progress tracking** — check off videos as you watch, see your % completion per course
 - **Resume where you left off** — automatically returns to your last watched video
+- **Notes per video** — jot notes in the sidebar while the video plays; they autosave and sync to your account
 - **Google login** — your courses sync to your account, access from any device
 - **Stats dashboard** — see total courses, videos watched, and completed courses at a glance
 
@@ -38,7 +39,7 @@ MyTube strips everything away. Paste a YouTube playlist, and it becomes a clean 
 ## Future Scope - AI integration
 
 - [ ] AI Q&A — ask questions about what you just watched
-- [ ] Notes per video
+- [x] Notes per video
 - [ ] Keyboard shortcuts
 - [ ] Mobile app
 - [ ] Test your knowledge with a curated exam
