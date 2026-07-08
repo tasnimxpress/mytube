@@ -55,17 +55,18 @@ export async function POST(request) {
       thumbnail: course.thumbnail || null,
       video_count: course.videoCount,
       videos: course.type === 'local'
-        ? course.videos.map(v => ({ id: v.id, name: v.name, fullName: v.fullName, fileType: v.fileType }))
+        ? course.videos.map(v => ({ id: v.id, name: v.name, fullName: v.fullName, fileType: v.fileType, subtitle: v.subtitle }))
         : course.videos,
       sections: course.type === 'local'
         ? course.sections.map(s => ({
           title: s.title,
-          items: s.items.map(i => ({ id: i.id, name: i.name, fullName: i.fullName, fileType: i.fileType }))
+          items: s.items.map(i => ({ id: i.id, name: i.name, fullName: i.fullName, fileType: i.fileType, subtitle: i.subtitle }))
         }))
         : null,
       watched_videos: course.progress?.watchedVideos || [],
       percentage: course.progress?.percentage || 0,
       last_watched: course.progress?.lastWatched || null,
+      positions: course.progress?.positions || {},
       added_at: course.addedAt || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -88,6 +89,7 @@ export async function PATCH(request) {
       watched_videos: progress.watchedVideos,
       percentage: progress.percentage,
       last_watched: progress.lastWatched,
+      positions: progress.positions || {},
       last_watched_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })

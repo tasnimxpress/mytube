@@ -88,6 +88,23 @@ export function AppProvider({ children }) {
     }))
   }, [user])
 
+  // Remember how far into a video the user has watched, so the player can
+  // auto-seek back to this spot next time. Called periodically while a video
+  // plays (and on pause/leave), so it must stay cheap and never surface an
+  // error banner — a dropped position save is not worth interrupting playback.
+  const savePosition = useCallback(async (courseId, videoId, seconds) => {
+    if (!user || !videoId) return
+    setCourses(prev => prev.map(c => {
+      if (c.id !== courseId) return c
+      const positions = { ...(c.progress.positions || {}), [videoId]: Math.max(0, Math.floor(seconds)) }
+      const updated = { ...c, progress: { ...c.progress, positions } }
+      updateProgress(courseId, updated.progress).catch(err => {
+        console.error('Position save failed:', err)
+      })
+      return updated
+    }))
+  }, [user])
+
   const getCourse = useCallback((id) => {
     return courses.find(c => c.id === id) || null
   }, [courses])
@@ -96,7 +113,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider value={{
       user, courses, isLoading, saveError, setSaveError,
       signInWithGoogle, signUpWithGoogle, signOut,
-      addCourse, removeCourse, markVideoWatched, setLastWatched, getCourse,
+      addCourse, removeCourse, markVideoWatched, setLastWatched, savePosition, getCourse,
     }}>
       {children}
     </AppContext.Provider>

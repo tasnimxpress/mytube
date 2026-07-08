@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { useApp } from '@/lib/context'
-import { requestFolderAccess, saveFolderHandle, getFileUrl, getFileText, getFileIcon } from '@/lib/localCourse'
+import { requestFolderAccess, saveFolderHandle, getFileUrl, getFileText, getSubtitleUrl, getFileIcon, getFileType, isSubtitleFile } from '@/lib/localCourse'
 import { loadNotes, createNote, updateNote, deleteNote } from '@/lib/notes'
 
 const NAV_H = 56
@@ -29,9 +29,183 @@ const MEDIA_INNER = {
   border: 'none',
 }
 
+// How often (ms) a playing video reports its position back for saving.
+const POSITION_SAVE_INTERVAL = 60000
+
+// Resolve a local item's kind. We keep BOTH sources: trust a specific stored
+// `fileType` (set correctly for newly (re)imported courses), but when it's
+// missing or the generic "other" (older imports saved html/text/code/audio as
+// "other"), re-derive it from the filename. So a course works whether or not
+// it has been re-imported.
+function resolveFileType(item) {
+  if (!item) return 'other'
+  if (item.fileType && item.fileType !== 'other') return item.fileType
+  return getFileType(item.fullName || item.name || '')
+}
+
+// ── YouTube IFrame Player API ───────────────────────────────────────────────
+// A plain <iframe> embed is cross-origin and opaque — you can't read the
+// playback position from it. To support resume, we drive the player through
+// YouTube's IFrame API, which lets us pass a `start` second and poll
+// getCurrentTime(). The API script is a singleton loaded once per page.
+let ytApiPromise = null
+function loadYouTubeApi() {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'))
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT)
+  if (ytApiPromise) return ytApiPromise
+  ytApiPromise = new Promise((resolve) => {
+    const prev = window.onYouTubeIframeAPIReady
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof prev === 'function') prev()
+      resolve(window.YT)
+    }
+    const tag = document.createElement('script')
+    tag.src = 'https://www.youtube.com/iframe_api'
+    document.head.appendChild(tag)
+  })
+  return ytApiPromise
+}
+
+// Drives one YouTube video. Auto-seeks to `startAt` seconds, reports position
+// via onProgress every few seconds while playing (and on pause), and reports
+// blocked/embed-disabled videos via onBlocked. Remount (via key) per video.
+function YouTubePlayer({ videoId, startAt, onProgress, onBlocked }) {
+  const hostRef = useRef(null)
+  // Keep the latest callbacks/props in refs so the polling interval and API
+  // callbacks always see current values without re-running the effect.
+  const onProgressRef = useRef(onProgress)
+  const onBlockedRef = useRef(onBlocked)
+  const startAtRef = useRef(startAt)
+  onProgressRef.current = onProgress
+  onBlockedRef.current = onBlocked
+
+  useEffect(() => {
+    let destroyed = false
+    let player = null
+    let interval = null
+
+    const flush = () => {
+      try {
+        const t = player?.getCurrentTime?.()
+        if (typeof t === 'number' && t > 0) onProgressRef.current(t)
+      } catch (_) { /* player torn down mid-call */ }
+    }
+    const stopPolling = () => { if (interval) { clearInterval(interval); interval = null } }
+
+    loadYouTubeApi().then((YT) => {
+      if (destroyed || !hostRef.current) return
+      player = new YT.Player(hostRef.current, {
+        width: '100%', height: '100%',
+        videoId,
+        playerVars: {
+          autoplay: 1, rel: 0, modestbranding: 1,
+          iv_load_policy: 3, color: 'white',
+          start: Math.max(0, Math.floor(startAtRef.current || 0)),
+        },
+        events: {
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.PLAYING) {
+              stopPolling()
+              interval = setInterval(flush, POSITION_SAVE_INTERVAL)
+            } else if (e.data === YT.PlayerState.ENDED) {
+              stopPolling()
+              onProgressRef.current(0) // finished → start over next time
+            } else {
+              stopPolling()
+              if (e.data === YT.PlayerState.PAUSED) flush()
+            }
+          },
+          onError: () => onBlockedRef.current?.(),
+        },
+      })
+    })
+
+    return () => {
+      destroyed = true
+      stopPolling()
+      flush() // save where we left off before tearing the player down
+      try { player?.destroy?.() } catch (_) { }
+    }
+  }, [videoId])
+
+  // The API replaces this inner node with its iframe; the wrapper keeps our
+  // absolute-fill sizing regardless of what YouTube injects.
+  return (
+    <div style={MEDIA_INNER}>
+      <div ref={hostRef} style={{ width: '100%', height: '100%' }} />
+    </div>
+  )
+}
+
+// Native <video> wrapper that resumes from `startAt` and reports position via
+// onProgress while playing / on pause / on unmount. Remount (via key) per file.
+// `subtitleSrc` (a WebVTT blob: URL, optional) is shown as captions.
+function LocalVideoPlayer({ src, subtitleSrc, startAt, onProgress }) {
+  const ref = useRef(null)
+  const onProgressRef = useRef(onProgress)
+  const startAtRef = useRef(startAt)
+  const lastSaved = useRef(0)
+  onProgressRef.current = onProgress
+
+  useEffect(() => {
+    const v = ref.current
+    if (!v) return
+
+    const seekToStart = () => {
+      const s = startAtRef.current
+      // Don't seek if we're essentially at the end — let it start over.
+      if (s > 0 && (!v.duration || s < v.duration - 1)) {
+        try { v.currentTime = s } catch (_) { }
+      }
+    }
+    const onTime = () => {
+      const t = v.currentTime
+      if (Math.abs(t - lastSaved.current) >= POSITION_SAVE_INTERVAL / 1000) {
+        lastSaved.current = t
+        onProgressRef.current(t)
+      }
+    }
+    const onPause = () => { if (v.currentTime > 0) onProgressRef.current(v.currentTime) }
+    const onEnded = () => onProgressRef.current(0) // finished → start over next time
+
+    // Metadata may already be loaded (cached blob) by the time this runs.
+    if (v.readyState >= 1) seekToStart()
+    v.addEventListener('loadedmetadata', seekToStart)
+    v.addEventListener('timeupdate', onTime)
+    v.addEventListener('pause', onPause)
+    v.addEventListener('ended', onEnded)
+
+    return () => {
+      v.removeEventListener('loadedmetadata', seekToStart)
+      v.removeEventListener('timeupdate', onTime)
+      v.removeEventListener('pause', onPause)
+      v.removeEventListener('ended', onEnded)
+      if (v.currentTime > 0) onProgressRef.current(v.currentTime)
+    }
+  }, [src])
+
+  // Show captions when a subtitle track is present. The `default` attribute is
+  // only honored for tracks present at initial parse; the subtitle loads a tick
+  // after the video, so the added track needs its mode set explicitly.
+  useEffect(() => {
+    const v = ref.current
+    if (!v || !subtitleSrc) return
+    const show = () => { const t = v.textTracks?.[0]; if (t) t.mode = 'showing' }
+    show()
+    const id = setTimeout(show, 0)
+    return () => clearTimeout(id)
+  }, [subtitleSrc])
+
+  return (
+    <video ref={ref} src={src} controls autoPlay style={MEDIA_INNER}>
+      {subtitleSrc && <track kind="subtitles" src={subtitleSrc} srcLang="en" label="Subtitles" default />}
+    </video>
+  )
+}
+
 function CoursePlayer({ courseId }) {
   const router = useRouter()
-  const { getCourse, markVideoWatched, setLastWatched, isLoading, saveError, setSaveError } = useApp()
+  const { getCourse, markVideoWatched, setLastWatched, savePosition, isLoading, saveError, setSaveError } = useApp()
   const [course, setCourse] = useState(null)
   const [activeItemId, setActiveItemId] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -48,11 +222,11 @@ function CoursePlayer({ courseId }) {
   // Local course state
   const [folderHandle, setFolderHandle] = useState(null)
   const [localFileUrl, setLocalFileUrl] = useState(null)
+  const [subtitleUrl, setSubtitleUrl] = useState(null)
   const [localTextContent, setLocalTextContent] = useState(null)
   const [localError, setLocalError] = useState(null)
   const [needsPermission, setNeedsPermission] = useState(false)
 
-  const playerRef = useRef(null)
   // FIX: Track ALL blob URLs created this session so we can revoke them all
   // on unmount, preventing memory leaks for large video/PDF/image files.
   const blobUrlsRef = useRef([])
@@ -79,22 +253,36 @@ function CoursePlayer({ courseId }) {
         const first = allItems.find(v => !c.progress?.watchedVideos?.includes(v.id))
         setActiveItemId(first?.id || allItems[0]?.id)
       }
-
-      if (c.type === 'local') {
-        requestFolderAccess(courseId).then(handle => {
-          if (handle) setFolderHandle(handle)
-          else setNeedsPermission(true)
-        })
-      }
     }
-  }, [isLoading, courseId, getCourse])
+  }, [isLoading, courseId, getCourse, router])
+
+  // ── Request folder access ONCE per course ───────────────────────────────────
+  // Kept out of the init effect (which re-runs on every `getCourse` identity
+  // change, i.e. every position save). Re-requesting here would hand back a new
+  // FileSystemDirectoryHandle object each time, changing `folderHandle`, which
+  // would re-run the file loader below and remount the <video> mid-playback —
+  // making local videos stutter/freeze every time a position is saved. The
+  // `folderHandle` guard ensures this fires only until access is granted.
+  useEffect(() => {
+    if (isLoading || folderHandle) return
+    const c = getCourse(courseId)
+    if (!c || c.type !== 'local') return
+    requestFolderAccess(courseId).then(handle => {
+      if (handle) setFolderHandle(handle)
+      else setNeedsPermission(true)
+    })
+    // getCourse is intentionally omitted: including it would re-run this on every
+    // course update (e.g. each position save), re-requesting folder access and
+    // remounting the <video>. courseId is only read to fetch a stable course.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, courseId, folderHandle])
 
   useEffect(() => {
     if (!isLoading) {
       const c = getCourse(courseId)
       if (c) setCourse(c)
     }
-  }, [isLoading, getCourse])
+  }, [isLoading, courseId, getCourse])
 
   useEffect(() => {
     setEmbedBlocked(false)
@@ -108,18 +296,26 @@ function CoursePlayer({ courseId }) {
       .then(rows => { if (!cancelled) setAllNotes(rows) })
       .catch(e => console.error('Failed to load notes:', e))
     return () => { cancelled = true }
+    // `course` is only read for a null-guard; course?.id is the real dependency.
+    // Depending on the whole object would reload notes on every course update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoading, courseId, course?.id])
 
   // ── Load local file when active item changes ────────────────────────────────
   useEffect(() => {
     if (!course || course.type !== 'local' || !activeItemId || !folderHandle) return
 
-    // Revoke previous blob URL before creating a new one
+    // Revoke previous blob URLs (file + subtitle) before creating new ones
     if (localFileUrl) {
       URL.revokeObjectURL(localFileUrl)
       blobUrlsRef.current = blobUrlsRef.current.filter(u => u !== localFileUrl)
     }
+    if (subtitleUrl) {
+      URL.revokeObjectURL(subtitleUrl)
+      blobUrlsRef.current = blobUrlsRef.current.filter(u => u !== subtitleUrl)
+    }
     setLocalFileUrl(null)
+    setSubtitleUrl(null)
     setLocalTextContent(null)
     setLocalError(null)
 
@@ -127,18 +323,23 @@ function CoursePlayer({ courseId }) {
     if (!item) return
 
     loadLocalFile(item)
+    // Deps are deliberately narrow. `course` (full object), localFileUrl and
+    // subtitleUrl change on every position save / URL swap; depending on them
+    // would revoke the blob and remount the <video> mid-playback. course?.type
+    // is the only course field that should re-trigger a reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeItemId, folderHandle, course?.type])
 
   async function loadLocalFile(item) {
     try {
-      const fileHandle = await findFileInFolder(folderHandle, item.fullName, course.sections, item.id)
-      if (!fileHandle) { setLocalError(`File not found: ${item.fullName}`); return }
+      const found = await findFileInFolder(folderHandle, item.fullName, course.sections, item.id)
+      if (!found) { setLocalError(`File not found: ${item.fullName}`); return }
+      const { file: fileHandle, dir } = found
 
-      // FIX: HTML files are shown as raw source text instead of opening as
-      // a blob: URL in a new tab. blob: URLs inherit the app's origin, so a
-      // malicious HTML file could access localStorage, cookies, and make
-      // same-origin requests. Showing raw source is safe and still useful.
-      if (item.fileType === 'text' || item.fileType === 'html') {
+      // text → raw source in a <pre>; html → source text used as iframe srcDoc.
+      // Resolve by filename fallback so older imports (stored as "other") work.
+      const type = resolveFileType(item)
+      if (type === 'text' || type === 'html') {
         const text = await getFileText(fileHandle)
         setLocalTextContent(text)
       } else {
@@ -146,35 +347,48 @@ function CoursePlayer({ courseId }) {
         // FIX: Register every blob URL so it is revoked on unmount
         blobUrlsRef.current.push(url)
         setLocalFileUrl(url)
+        // Attach the matching subtitle (found at import) as captions. Captions
+        // are optional — a failure here must never block video playback.
+        if (type === 'video' && item.subtitle && dir) {
+          try {
+            const subUrl = await getSubtitleUrl(dir, item.subtitle)
+            blobUrlsRef.current.push(subUrl)
+            setSubtitleUrl(subUrl)
+          } catch (_) { /* no captions — ignore */ }
+        }
       }
     } catch (e) {
       setLocalError(`Could not open file: ${e.message}`)
     }
   }
 
+  // Resolve a file to { file: FileSystemFileHandle, dir: FileSystemDirectoryHandle }.
+  // The dir is returned so sidecars (e.g. subtitles) can be read from the same folder.
   async function findFileInFolder(rootHandle, fileName, sections, itemId) {
-    // First try to find in the specific section derived from the item id
+    const tryDir = async (dir) => {
+      try { return { file: await dir.getFileHandle(fileName), dir } } catch (_) { return null }
+    }
+    // First try the specific section derived from the item id.
     // Item IDs are structured as: dirName__fileName__timestamp__random
-    // so we can extract the section folder from the id prefix
+    // so we can extract the section folder from the id prefix.
     if (itemId) {
       const sectionName = itemId.split('__')[0]
       if (sectionName && sectionName !== rootHandle.name) {
         try {
           const subDir = await rootHandle.getDirectoryHandle(sectionName)
-          const handle = await subDir.getFileHandle(fileName)
-          return handle
+          const r = await tryDir(subDir); if (r) return r
         } catch (_) { }
       }
     }
     // Fallback: try root
-    try { return await rootHandle.getFileHandle(fileName) } catch (_) { }
+    const rootResult = await tryDir(rootHandle); if (rootResult) return rootResult
     // Fallback: search all sections
     if (sections) {
       for (const section of sections) {
         if (!section.title) continue
         try {
           const subDir = await rootHandle.getDirectoryHandle(section.title)
-          return await subDir.getFileHandle(fileName)
+          const r = await tryDir(subDir); if (r) return r
         } catch (_) { }
       }
     }
@@ -194,19 +408,21 @@ function CoursePlayer({ courseId }) {
     }
   }
 
+  // These handlers only update context (via markVideoWatched / setLastWatched).
+  // The local `course` mirror is refreshed by the sync effect above, which runs
+  // whenever context's `getCourse` identity changes. We must NOT re-read
+  // getCourse(courseId) here: this closure captured the pre-update getCourse, so
+  // it would read stale data and clobber the change (making the button need a
+  // second click to appear to work).
   async function handleItemSelect(itemId) {
     setActiveItemId(itemId)
     await setLastWatched(courseId, itemId)
-    const c = getCourse(courseId)
-    if (c) setCourse(c)
   }
 
   async function handleToggleWatched(itemId, e) {
     e?.stopPropagation()
     const isWatched = course.progress?.watchedVideos?.includes(itemId)
     await markVideoWatched(courseId, itemId, !isWatched)
-    const c = getCourse(courseId)
-    if (c) setCourse(c)
   }
 
   async function handleMarkAndNext(itemId) {
@@ -216,8 +432,6 @@ function CoursePlayer({ courseId }) {
     const idx = allItems.findIndex(v => v.id === itemId)
     const next = allItems[idx + 1]
     if (next) handleItemSelect(next.id)
-    const c = getCourse(courseId)
-    if (c) setCourse(c)
   }
 
   // The videoId is captured in the closure, so a debounced save still targets
@@ -284,21 +498,22 @@ function CoursePlayer({ courseId }) {
     setSidebarView('notes')
   }
 
-  const embedUrl = !isLocal && activeItemId
-    ? `https://www.youtube.com/embed/${activeItemId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&color=white`
-    : ''
+  // Seconds to resume from for the active item (0 = start from the beginning).
+  const startAt = Math.floor(course.progress?.positions?.[activeItemId] || 0)
 
-  // FIX: HTML files are now rendered as raw text (see loadLocalFile), not
-  // opened as blob: URLs. isHtmlFile is kept only to show the correct icon/label.
-  const isHtmlFile =
-    activeItem?.fileType === 'html' ||
-    (activeItem?.fileType === 'other' && /\.html?$/i.test(activeItem?.fullName || ''))
+  // Persist the current playback position for the active item. Passed to both
+  // players; each calls it periodically while playing and on pause/leave.
+  function handlePosition(seconds) {
+    savePosition(courseId, activeItemId, seconds)
+  }
 
-  const isOtherFile =
-    activeItem?.fileType === 'other' && !/\.html?$/i.test(activeItem?.fullName || '')
-
-  // HTML files now render the same way as text files (raw source view)
-  const isTextOrHtml = activeItem?.fileType === 'text' || isHtmlFile
+  // Kind of the active local item, resolved from stored type + filename.
+  const activeType = resolveFileType(activeItem)
+  const isHtmlFile = activeType === 'html'
+  const isAudio = activeType === 'audio'
+  // Plain-text / code / data files: shown as raw source.
+  const isTextFile = activeType === 'text'
+  const isOtherFile = activeType === 'other'
 
   return (
     <div style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -414,20 +629,17 @@ function CoursePlayer({ courseId }) {
                   {/* YouTube player */}
                   {!isLocal && (
                     <div style={mw()}>
-                      {embedUrl && !embedBlocked && (
-                        <iframe
-                          ref={playerRef}
+                      {activeItemId && !embedBlocked && (
+                        <YouTubePlayer
                           key={activeItemId}
-                          src={embedUrl}
-                          style={MEDIA_INNER}
-                          title={activeItem?.title || 'YouTube video'}
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          onError={() => setEmbedBlocked(true)}
+                          videoId={activeItemId}
+                          startAt={startAt}
+                          onProgress={handlePosition}
+                          onBlocked={() => setEmbedBlocked(true)}
                         />
                       )}
 
-                      {embedUrl && embedBlocked && (
+                      {activeItemId && embedBlocked && (
                         <div style={{
                           ...MEDIA_INNER,
                           display: 'flex', flexDirection: 'column',
@@ -481,10 +693,16 @@ function CoursePlayer({ courseId }) {
                   )}
 
                   {/* Local: video */}
-                  {isLocal && !needsPermission && activeItem?.fileType === 'video' && (
+                  {isLocal && !needsPermission && activeType === 'video' && (
                     <div style={mw()}>
                       {localFileUrl ? (
-                        <video key={localFileUrl} src={localFileUrl} controls autoPlay style={MEDIA_INNER} />
+                        <LocalVideoPlayer
+                          key={localFileUrl}
+                          src={localFileUrl}
+                          subtitleSrc={subtitleUrl}
+                          startAt={startAt}
+                          onProgress={handlePosition}
+                        />
                       ) : !localError && (
                         <div style={{ ...MEDIA_INNER, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <div style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
@@ -494,7 +712,7 @@ function CoursePlayer({ courseId }) {
                   )}
 
                   {/* Local: image */}
-                  {isLocal && !needsPermission && activeItem?.fileType === 'image' && (
+                  {isLocal && !needsPermission && activeType === 'image' && (
                     <div style={mw()}>
                       {localFileUrl && (
                         <img src={localFileUrl} alt={activeItem.name} style={{ ...MEDIA_INNER, objectFit: 'contain' }} />
@@ -502,30 +720,37 @@ function CoursePlayer({ courseId }) {
                     </div>
                   )}
 
+                  {/* Local: audio */}
+                  {isLocal && !needsPermission && isAudio && (
+                    <div style={mw({ background: 'var(--bg-card)' })}>
+                      <div style={{ ...MEDIA_INNER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 32 }}>
+                        <div style={{ fontSize: 64 }}>🎵</div>
+                        <p style={{ fontSize: 16, color: 'var(--text-primary)', textAlign: 'center', wordBreak: 'break-word' }}>{activeItem.name}</p>
+                        {localFileUrl && (
+                          <audio src={localFileUrl} controls autoPlay style={{ width: '100%', maxWidth: 480 }} />
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Local: PDF */}
-                  {isLocal && !needsPermission && activeItem?.fileType === 'pdf' && (
+                  {isLocal && !needsPermission && activeType === 'pdf' && (
                     <div style={mw()}>
+                      {/* Chrome blocks PDFs inside *any* sandboxed iframe
+                          ("This page has been blocked by Chrome"), so we don't
+                          sandbox here. It's safe: the file is the user's own local
+                          PDF from a same-origin blob: URL, and Chrome's PDF viewer
+                          already isolates any script embedded in the PDF itself. */}
                       {localFileUrl && (
-                        <iframe src={localFileUrl} style={MEDIA_INNER} title={activeItem.name} sandbox="allow-scripts" />
+                        <iframe src={localFileUrl} style={MEDIA_INNER} title={activeItem.name} />
                       )}
                     </div>
                   )}
 
-                  {/* Local: text + HTML (both rendered as raw source — safe) */}
-                  {isLocal && !needsPermission && isTextOrHtml && (
+                  {/* Local: text / code / data — raw source view */}
+                  {isLocal && !needsPermission && isTextFile && (
                     <div style={mw({ background: 'var(--bg-card)' })}>
                       <div style={{ ...MEDIA_INNER, overflowY: 'auto', padding: 24 }}>
-                        {isHtmlFile && (
-                          <div style={{
-                            marginBottom: 12, padding: '6px 12px',
-                            background: 'rgba(251,191,36,0.08)',
-                            border: '1px solid rgba(251,191,36,0.2)',
-                            borderRadius: 6, fontSize: 12,
-                            color: 'var(--warning)',
-                          }}>
-                            🌐 HTML source — shown as plain text for security
-                          </div>
-                        )}
                         <pre style={{
                           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                           fontSize: 14, lineHeight: 1.7,
@@ -538,13 +763,71 @@ function CoursePlayer({ courseId }) {
                     </div>
                   )}
 
-                  {/* Local: other file type */}
+                  {/* Local: HTML — rendered (not raw source) so the file actually
+                      "opens". It runs in a sandboxed iframe via srcDoc, which gives
+                      the page a unique opaque origin: its scripts can run for the
+                      page itself but CANNOT reach the app's cookies, storage, or
+                      make same-origin API calls. srcDoc avoids needing a
+                      same-origin blob: URL (which a sandbox would block). */}
+                  {isLocal && !needsPermission && isHtmlFile && (
+                    <div style={mw({ background: '#fff' })}>
+                      {localTextContent != null ? (
+                        <iframe
+                          srcDoc={localTextContent}
+                          style={MEDIA_INNER}
+                          title={activeItem?.name || 'HTML'}
+                          sandbox="allow-scripts"
+                        />
+                      ) : (
+                        <div style={{ ...MEDIA_INNER, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Local: other file type (xlsx, pptx, docx, zip, …). Browsers
+                      can't render these inline, and uploading them to a web viewer
+                      would send the user's local files off-device. Instead we hand
+                      the file to the OS via Open (new tab) / Download so the native
+                      app (Excel, PowerPoint, …) can open it. */}
                   {isLocal && !needsPermission && isOtherFile && (
                     <div style={mw({ background: 'var(--bg-card)' })}>
-                      <div style={{ ...MEDIA_INNER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)' }}>
-                        <div style={{ fontSize: 48 }}>📎</div>
-                        <p style={{ fontSize: 16 }}>{activeItem.fullName}</p>
-                        <p style={{ fontSize: 13 }}>This file type cannot be previewed in the browser.</p>
+                      <div style={{ ...MEDIA_INNER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32, textAlign: 'center' }}>
+                        <div style={{ fontSize: 56 }}>{getFileIcon(activeType)}</div>
+                        <p style={{ fontSize: 16, color: 'var(--text-primary)', wordBreak: 'break-word', maxWidth: 480 }}>{activeItem.fullName}</p>
+                        <p style={{ fontSize: 13, color: 'var(--text-muted)', maxWidth: 420 }}>
+                          This file type opens in its own app. Download it or open it in a new tab.
+                        </p>
+                        {localFileUrl ? (
+                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                            <a
+                              href={localFileUrl}
+                              download={activeItem.fullName}
+                              style={{
+                                background: 'var(--accent)', color: '#0e0f11',
+                                border: 'none', borderRadius: 8, padding: '10px 22px',
+                                fontWeight: 600, fontSize: 14, textDecoration: 'none',
+                              }}
+                            >
+                              ⬇ Download
+                            </a>
+                            <a
+                              href={localFileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                background: 'transparent', color: 'var(--text-secondary)',
+                                border: '1px solid var(--border)', borderRadius: 8, padding: '10px 22px',
+                                fontWeight: 600, fontSize: 14, textDecoration: 'none',
+                              }}
+                            >
+                              ↗ Open in new tab
+                            </a>
+                          </div>
+                        ) : (
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', border: '2px solid var(--border)', borderTop: '2px solid var(--accent)', animation: 'spin 0.8s linear infinite' }} />
+                        )}
                       </div>
                     </div>
                   )}
@@ -589,7 +872,7 @@ function CoursePlayer({ courseId }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <h2 style={{ fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {isLocal
-                      ? <>{getFileIcon(activeItem?.fileType)} {activeItem?.name}</>
+                      ? <>{getFileIcon(activeType)} {activeItem?.name}</>
                       : <>{activeIdx + 1}. {activeItem?.title}</>
                     }
                   </h2>
@@ -832,7 +1115,12 @@ function ItemList({ course, activeItemId, watched, notedIds, onSelect, onToggle 
   if (isLocal && course.sections?.length) {
     return (
       <div>
-        {course.sections.map((section, sIdx) => (
+        {course.sections.map((section, sIdx) => {
+          // Hide subtitle sidecars from already-imported courses too (newer
+          // imports already exclude them at scan time).
+          const items = section.items.filter(i => !isSubtitleFile(i.fullName || ''))
+          if (items.length === 0) return null
+          return (
           <div key={sIdx}>
             {section.title && (
               <div style={{
@@ -846,7 +1134,7 @@ function ItemList({ course, activeItemId, watched, notedIds, onSelect, onToggle 
                 📁 {section.title}
               </div>
             )}
-            {section.items.map((item, idx) => (
+            {items.map((item, idx) => (
               <ItemRow
                 key={item.id}
                 item={item}
@@ -860,7 +1148,8 @@ function ItemList({ course, activeItemId, watched, notedIds, onSelect, onToggle 
               />
             ))}
           </div>
-        ))}
+          )
+        })}
       </div>
     )
   }
@@ -929,7 +1218,7 @@ function ItemRow({ item, idx, isActive, isWatched, hasNote, isLocal, onSelect, o
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 16,
         }}>
-          {getFileIcon(item.fileType)}
+          {getFileIcon(resolveFileType(item))}
         </div>
       )}
 

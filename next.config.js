@@ -28,12 +28,19 @@ const nextConfig = {
               // 'unsafe-eval' is required ONLY in dev: Next.js Fast Refresh /
               // webpack HMR evaluate the client bundle via eval(). It is omitted
               // in production so the deployed CSP stays strict.
-              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+              // https://www.youtube.com + https://s.ytimg.com are needed for the
+              // YouTube IFrame Player API (iframe_api + www-widgetapi scripts),
+              // which drives resume-from-position on YouTube videos.
+              `script-src 'self' 'unsafe-inline' https://www.youtube.com https://s.ytimg.com${isDev ? " 'unsafe-eval'" : ''}`,
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https://i.ytimg.com https://*.googleusercontent.com",
-              // blob: removed from frame-src — PDFs now use sandbox without allow-same-origin
-              "frame-src https://www.youtube.com",
+              // blob: is required for local videos played via <video src=blob:>.
+              "media-src 'self' blob:",
+              // blob: is required to preview local PDFs in an <iframe>. The iframe
+              // is sandboxed WITHOUT allow-same-origin, so a malicious PDF still
+              // cannot reach the app's origin, cookies, or storage.
+              "frame-src 'self' blob: https://www.youtube.com",
               "connect-src 'self' https://*.supabase.co https://www.googleapis.com https://api.supadata.ai",
               "frame-ancestors 'none'",
             ].join('; '),

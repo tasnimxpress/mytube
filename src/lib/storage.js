@@ -56,6 +56,8 @@ export function rowToCourse(row) {
       percentage: row.percentage || 0,
       lastWatched: row.last_watched,
       lastWatchedAt: row.last_watched_at,
+      // Per-video resume position: { [videoId]: secondsIntoVideo }
+      positions: row.positions || {},
     }
   }
 }
