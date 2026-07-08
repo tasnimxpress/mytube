@@ -18,9 +18,12 @@ MyTube strips everything away. Paste a YouTube playlist, and it becomes a clean 
 ## Features
 
 - **Distraction-free player** — YouTube embedded with no sidebar, no recommendations, no comments
+- **Import playlists or single videos** — paste a YouTube playlist URL, or a single video
+- **Local courses** — point MyTube at a folder on your computer and it becomes a structured course: videos, PDFs, audio, images, and text files, organized by subfolder. Files never leave your device — only file references are stored
+- **Subtitles for local videos** — matching `.srt`/`.vtt` sidecar files show automatically as captions (`.srt` is converted to WebVTT on the fly), without cluttering the content list
 - **Course progress tracking** — check off videos as you watch, see your % completion per course
-- **Resume where you left off** — automatically returns to your last watched video
-- **Notes per video** — jot notes in the sidebar while the video plays; they autosave and sync to your account
+- **Resume where you left off** — returns to your last video *and the exact second you stopped*, for both YouTube and local videos
+- **Notes per video** — jot multiple notes in the sidebar while the video plays; they autosave and sync to your account
 - **Google login** — your courses sync to your account, access from any device
 - **Stats dashboard** — see total courses, videos watched, and completed courses at a glance
 
@@ -30,7 +33,7 @@ MyTube strips everything away. Paste a YouTube playlist, and it becomes a clean 
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 16 + Tailwind CSS |
+| Frontend | Next.js 15 + Tailwind CSS |
 | Database | Supabase (PostgreSQL) |
 | Auth | Supabase + Google OAuth |
 | Playlist data | YouTube Data API v3 + Supadata fallback |
